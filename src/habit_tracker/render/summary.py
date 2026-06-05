@@ -11,7 +11,7 @@ from habit_tracker.stats import intensity_bucket
 
 # Sparkline characters mapped to intensity 0-4
 _SPARK = [" ", "▁", "▃", "▆", "█"]
-_COLORS = ["#161b22", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4"]
+_COLORS = ["#30363d", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4"]
 
 # Recent weeks shown in startup sparkline (4 weeks = 28 chars — compact enough for any terminal)
 _SPARK_WEEKS = 4

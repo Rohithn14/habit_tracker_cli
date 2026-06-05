@@ -11,7 +11,7 @@ from habit_tracker.models import Entry, Habit
 from habit_tracker.stats import intensity_bucket, range_dates
 
 _PALETTE = [
-    "#161b22",  # 0 – empty
+    "#30363d",  # 0 – empty  (visible dark gray)
     "#ef4444",  # 1 – low    (red)
     "#f59e0b",  # 2 – partial (amber)
     "#22c55e",  # 3 – good   (green)
@@ -65,11 +65,14 @@ def render_heatmap(
     month_label_row.append("    ")  # 4-char prefix matching day-label width
     current_month = -1
     for week in weeks:
-        first_valid = next((d for d, _ in week if d is not None), None)
-        if first_valid and first_valid.month != current_month:
-            current_month = first_valid.month
-            label = first_valid.strftime("%b")
-            month_label_row.append(label.ljust(3), style=Style(color="bright_white", bold=True))
+        # Scan all days so months starting mid-week (non-Sunday) are caught
+        new_month = next(
+            (d for d, _ in week if d is not None and d.month != current_month),
+            None,
+        )
+        if new_month:
+            current_month = new_month.month
+            month_label_row.append(new_month.strftime("%b").ljust(3), style=Style(color="bright_white", bold=True))
         else:
             month_label_row.append("   ")
     console.print(month_label_row)

@@ -13,7 +13,7 @@ from habit_tracker.models import Habit, HabitStats
 from habit_tracker.stats import intensity_bucket
 
 _BLOCK = "■  "
-_PALETTE = ["#161b22", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4"]
+_PALETTE = ["#30363d", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4"]
 _DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 _SPARK = [" ", "▁", "▃", "▆", "█"]
 
@@ -110,14 +110,17 @@ class HeatmapWidget(Static):
 
         out = Text()
 
-        # Month labels
+        # Month labels — scan all days in week so months starting mid-week (non-Sunday) are caught
         out.append("    ")
         current_month = -1
         for week in weeks:
-            first_valid = next((d for d, _ in week if d is not None), None)
-            if first_valid and first_valid.month != current_month:
-                current_month = first_valid.month
-                out.append(first_valid.strftime("%b").ljust(3), style="bold white")
+            new_month = next(
+                (d for d, _ in week if d is not None and d.month != current_month),
+                None,
+            )
+            if new_month:
+                current_month = new_month.month
+                out.append(new_month.strftime("%b").ljust(3), style="bold white")
             else:
                 out.append("   ")
         out.append("\n")
