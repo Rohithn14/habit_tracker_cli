@@ -1,0 +1,22 @@
+[project]
+name = "habit-tracker"
+version = "0.1.0"
+description = "Terminal habit tracker with GitHub-style heatmaps, streaks, and interactive TUI"
+readme = "README.md"
+authors = [
+    { name = "Rohithn14", email = "rohithnamavaram1@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "platformdirs>=4.10.0",
+    "rich>=15.0.0",
+    "textual>=8.2.7",
+    "typer>=0.26.7",
+]
+
+[project.scripts]
+habit = "habit_tracker.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.11.17,<0.12.0"]
+build-backend = "uv_build"
