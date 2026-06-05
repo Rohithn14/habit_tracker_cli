@@ -12,8 +12,8 @@ from textual.widgets import ListItem, ListView, Static
 from habit_tracker.models import Habit, HabitStats
 from habit_tracker.stats import intensity_bucket
 
-_BLOCK = "■ "
-_PALETTE = ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"]
+_BLOCK = "■  "
+_PALETTE = ["#161b22", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4"]
 _DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 _SPARK = [" ", "▁", "▃", "▆", "█"]
 
@@ -111,15 +111,15 @@ class HeatmapWidget(Static):
         out = Text()
 
         # Month labels
-        out.append("     ")
+        out.append("    ")
         current_month = -1
         for week in weeks:
             first_valid = next((d for d, _ in week if d is not None), None)
             if first_valid and first_valid.month != current_month:
                 current_month = first_valid.month
-                out.append(first_valid.strftime("%b")[:2].ljust(2), style="bold white")
+                out.append(first_valid.strftime("%b").ljust(3), style="bold white")
             else:
-                out.append("  ")
+                out.append("   ")
         out.append("\n")
 
         for row_idx in range(7):

@@ -10,16 +10,15 @@ from rich.text import Text
 from habit_tracker.models import Entry, Habit
 from habit_tracker.stats import intensity_bucket, range_dates
 
-# GitHub dark-mode contribution palette
 _PALETTE = [
-    "#161b22",  # 0 – empty (dark bg)
-    "#0e4429",  # 1 – lowest
-    "#006d32",  # 2 – low-mid
-    "#26a641",  # 3 – mid-high
-    "#39d353",  # 4 – highest
+    "#161b22",  # 0 – empty
+    "#ef4444",  # 1 – low    (red)
+    "#f59e0b",  # 2 – partial (amber)
+    "#22c55e",  # 3 – good   (green)
+    "#06b6d4",  # 4 – max    (cyan)
 ]
 
-_BLOCK = "■ "   # each cell — square + space for spacing
+_BLOCK = "■  "  # 3-char cell so 3-letter month labels align
 _DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 
@@ -63,18 +62,16 @@ def render_heatmap(
 
     # ── Month labels row ──────────────────────────────────────────────────────
     month_label_row = Text()
-    # 4-char day-label prefix placeholder
-    month_label_row.append("     ")
+    month_label_row.append("    ")  # 4-char prefix matching day-label width
     current_month = -1
     for week in weeks:
-        # Find the first valid date in this week to label the month
         first_valid = next((d for d, _ in week if d is not None), None)
         if first_valid and first_valid.month != current_month:
             current_month = first_valid.month
             label = first_valid.strftime("%b")
-            month_label_row.append(label.ljust(2), style=Style(color="bright_white", bold=True))
+            month_label_row.append(label.ljust(3), style=Style(color="bright_white", bold=True))
         else:
-            month_label_row.append("  ")
+            month_label_row.append("   ")
     console.print(month_label_row)
 
     # ── Day rows ──────────────────────────────────────────────────────────────
