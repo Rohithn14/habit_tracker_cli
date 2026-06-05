@@ -283,3 +283,33 @@ def tui() -> None:
     """Launch the interactive TUI."""
     from habit_tracker.tui.app import HabitApp
     HabitApp().run()
+
+
+@app.command(name="shell-install")
+def shell_install(
+    remove: bool = typer.Option(False, "--remove", help="Remove the shell hook instead of installing it"),
+) -> None:
+    """Add (or remove) the habit summary hook in ~/.zshrc."""
+    from habit_tracker.shell import install, is_installed, remove as remove_hook
+    from pathlib import Path
+
+    rc = Path.home() / ".zshrc"
+
+    if remove:
+        removed = remove_hook()
+        if removed:
+            console.print(f"[yellow]↩[/yellow] Removed habit-tracker hook from [bold]{rc}[/bold]")
+        else:
+            console.print("[dim]Hook not found — nothing to remove.[/dim]")
+        return
+
+    if is_installed():
+        console.print(f"[dim]Hook already installed in [bold]{rc}[/bold][/dim]")
+        return
+
+    added = install()
+    if added:
+        console.print(f"[green]✓[/green] Installed startup hook in [bold]{rc}[/bold]")
+        console.print("[dim]Open a new terminal to see habit summary on startup.[/dim]")
+    else:
+        console.print("[dim]Already installed.[/dim]")
