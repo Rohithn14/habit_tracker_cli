@@ -4,94 +4,92 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from rich.text import Text
-from textual.app import ComposeResult
-from textual.reactive import reactive
-from textual.widget import Widget
-from textual.widgets import ListItem, ListView, Static
+from textual.widgets import ListItem, Static
 
 from habit_tracker.models import Habit, HabitStats
 from habit_tracker.stats import intensity_bucket
 
+# ── Shared palette (kept in sync with the registered "habit" theme) ────────────
 _BLOCK = "■  "
 _PALETTE = ["#30363d", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4"]
+_SURFACE = "#161b22"   # card background — used for out-of-range cells so they blend
+_DIM = "#7d8590"
 _DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-_SPARK = [" ", "▁", "▃", "▆", "█"]
+
+# Accent colors used in markup (match theme tokens)
+C_PRIMARY = "#a78bfa"
+C_SECONDARY = "#22d3ee"
+C_ACCENT = "#fbbf24"
+C_SUCCESS = "#4ade80"
+C_BG = "#0d1117"
 
 
 class HabitListItem(ListItem):
-    """A single row in the habit sidebar list."""
+    """A two-line habit card in the sidebar list."""
 
     DEFAULT_CSS = """
     HabitListItem {
-        height: 1;
+        height: 3;
         padding: 0 1;
+        border-left: thick $surface;
     }
-    HabitListItem:focus, HabitListItem.-highlighted {
-        background: $accent 20%;
+    HabitListItem.-highlighted {
+        background: $boost;
+        border-left: thick $accent;
+    }
+    HabitListItem:hover {
+        background: $boost 50%;
     }
     """
 
     def __init__(self, habit: Habit, stats: HabitStats) -> None:
         self.habit = habit
         self.habit_stats = stats
-        label = self._make_label(habit, stats)
-        super().__init__(Static(label))
+        super().__init__(Static(self._make_label(habit, stats)))
 
     def _make_label(self, habit: Habit, stats: HabitStats) -> Text:
-        text = Text(no_wrap=True, overflow="ellipsis")
         emoji = habit.emoji or "●"
-        text.append(f"{emoji} ", style="")
-        text.append(f"{habit.name}", style="bold")
         if stats.done_today:
-            text.append(" ✓", style="bold green")
+            badge = f"[{C_SUCCESS}]●[/]"
         elif stats.current_streak > 0:
-            text.append(f" 🔥{stats.current_streak}", style="yellow")
-        return text
+            badge = f"[{C_ACCENT}]🔥[/]"
+        else:
+            badge = f"[{_DIM}]○[/]"
+
+        top = f"{emoji}  [b]{habit.name}[/]  {badge}"
+
+        streak = (
+            f"[{C_ACCENT}]🔥 {stats.current_streak}d[/]"
+            if stats.current_streak
+            else f"[{_DIM}]— no streak[/]"
+        )
+        pct = f"[{_DIM}]· {stats.completion_rate * 100:.0f}%[/]"
+        bottom = f"[{_DIM}]   [/]{streak}  {pct}"
+
+        return Text.from_markup(f"{top}\n{bottom}")
 
     def refresh_stats(self, stats: HabitStats) -> None:
         self.habit_stats = stats
-        label = self._make_label(self.habit, stats)
-        self.query_one(Static).update(label)
+        self.query_one(Static).update(self._make_label(self.habit, stats))
 
 
 class HeatmapWidget(Static):
-    """Renders a GitHub-style heatmap for one habit."""
+    """Renders the contribution heatmap for one habit, with a legend."""
 
-    DEFAULT_CSS = """
-    HeatmapWidget {
-        padding: 1 2;
-    }
-    """
-
-    habit: reactive[Habit | None] = reactive(None)
-    stats: reactive[HabitStats | None] = reactive(None)
-    range_name: reactive[str] = reactive("year")
-
-    def watch_habit(self, _: Habit | None) -> None:
-        self._refresh_content()
-
-    def watch_stats(self, _: HabitStats | None) -> None:
-        self._refresh_content()
-
-    def watch_range_name(self, _: str) -> None:
-        self._refresh_content()
-
-    def _refresh_content(self) -> None:
-        if self.habit is None or self.stats is None:
+    def update_view(self, habit: Habit | None, stats: HabitStats | None, range_name: str) -> None:
+        if habit is None or stats is None:
             self.update("")
             return
-        self.update(self._build_content())
+        self.update(self._build_content(habit, stats, range_name))
 
-    def _build_content(self) -> Text:
+    def _build_content(self, habit: Habit, stats: HabitStats, range_name: str) -> Text:
         from habit_tracker.stats import range_dates
 
-        habit = self.habit
-        entries = self.stats.entries if self.stats else []
-        since, until = range_dates(self.range_name)
-
+        entries = stats.entries
+        since, until = range_dates(range_name)
         entry_map: dict[date, int] = {e.date: e.count for e in entries}
 
-        # Align grid start to Sunday
+        # Align grid start to the Sunday on/before `since`
         offset = (since.weekday() + 1) % 7
         grid_start = since - timedelta(days=offset)
 
@@ -110,7 +108,7 @@ class HeatmapWidget(Static):
 
         out = Text()
 
-        # Month labels — scan all days in week so months starting mid-week (non-Sunday) are caught
+        # Month labels — scan every day so mid-week month starts are caught
         out.append("    ")
         current_month = -1
         for week in weeks:
@@ -120,62 +118,53 @@ class HeatmapWidget(Static):
             )
             if new_month:
                 current_month = new_month.month
-                out.append(new_month.strftime("%b").ljust(3), style="bold white")
+                out.append(new_month.strftime("%b").ljust(3), style=f"bold {C_SECONDARY}")
             else:
                 out.append("   ")
         out.append("\n")
 
+        # Day rows
         for row_idx in range(7):
             if row_idx in (1, 3, 5):
-                out.append(f"{_DAYS[row_idx][:3]} ", style="bright_black")
+                out.append(f"{_DAYS[row_idx]} ", style=_DIM)
             else:
-                out.append("    ", style="bright_black")
+                out.append("    ")
             for week in weeks:
                 day_date, level = week[row_idx]
-                color = "#0d1117" if day_date is None else _PALETTE[level]
+                color = _SURFACE if day_date is None else _PALETTE[level]
                 out.append(_BLOCK, style=color)
             out.append("\n")
+
+        # Legend
+        out.append("\n    ")
+        out.append("Less ", style=_DIM)
+        for color in _PALETTE:
+            out.append("■ ", style=color)
+        out.append("More", style=_DIM)
 
         return out
 
 
-class StatsWidget(Static):
-    """Renders streak + stats for the selected habit."""
+class MetricTile(Static):
+    """A single metric card: icon, value, label."""
 
     DEFAULT_CSS = """
-    StatsWidget {
-        padding: 1 2;
-        border-top: solid $accent 30%;
+    MetricTile {
+        width: 1fr;
+        height: 1fr;
+        margin-right: 1;
+        padding: 1 0;
+        background: $surface;
+        border: round $primary 30%;
+        content-align: center middle;
+        text-align: center;
+    }
+    MetricTile.-last {
+        margin-right: 0;
     }
     """
 
-    stats: reactive[HabitStats | None] = reactive(None)
-
-    def watch_stats(self, stats: HabitStats | None) -> None:
-        if stats is None:
-            self.update("")
-            return
-        self.update(self._build_content(stats))
-
-    def _build_content(self, stats: HabitStats) -> Text:
-        h = stats.habit
-        title = f"{h.emoji} {h.name}" if h.emoji else h.name
-        done_str = "[bold green]✓ Done[/bold green]" if stats.done_today else "[dim]· Pending[/dim]"
-
-        lines = [
-            f"[bold]{title}[/bold]",
-            "",
-            f"[dim]Today[/dim]          {done_str}",
-            f"[dim]Current streak[/dim]  [bold yellow]{stats.current_streak} days[/bold yellow]",
-            f"[dim]Longest streak[/dim]  {stats.longest_streak} days",
-            f"[dim]Completion[/dim]      {stats.completion_rate * 100:.1f}%",
-            f"[dim]Total logged[/dim]    {stats.total_completions} days",
-        ]
-        if h.target:
-            lines.append(f"[dim]Daily target[/dim]    {h.target}")
-
-        lines += [
-            "",
-            "[dim]Keys: [bold]d[/bold]=done  [bold]c[/bold]=log count  [bold]u[/bold]=undo  [bold]a[/bold]=add  [bold]x[/bold]=delete  [bold]1/2/3[/bold]=range  [bold]q[/bold]=quit[/dim]",
-        ]
-        return Text.from_markup("\n".join(lines))
+    def set_metric(self, icon: str, value: str, label: str, color: str) -> None:
+        self.update(
+            f"[{color}]{icon}[/]\n\n[b {color}]{value}[/]\n[{_DIM}]{label}[/]"
+        )

@@ -27,7 +27,7 @@ The data flow is: **CLI/TUI** → **storage.py** (SQLite) + **stats.py** (pure l
 
 **`render/summary.py`** — compact startup view: one `Text` line per habit (emoji, name, 28-char sparkline over last 4 weeks, streak, today mark, completion%). Must never raise — called from `habit summary` which wraps everything in `try/except: pass`.
 
-**`tui/app.py`** + **`tui/widgets.py`** — Textual app. Lazy-imported: only inside the `tui` CLI command, never at module top level (keeps shell startup fast). Widget methods that rebuild display are named `_build_content` — never `_render` (conflicts with Textual's internal rendering pipeline and causes `TypeError: missing 1 required positional argument`).
+**`tui/app.py`** + **`tui/widgets.py`** — Textual app. Lazy-imported: only inside the `tui` CLI command, never at module top level (keeps shell startup fast). A custom `HABIT_THEME` (`textual.theme.Theme`) is registered in `on_mount` and drives `$primary`/`$secondary`/`$accent` in the CSS; markup strings use the matching hardcoded hex constants (`C_PRIMARY`, `C_ACCENT`, …) since Rich `Text.from_markup` does not resolve `$` theme tokens. Widgets: `HabitListItem` (two-line sidebar card), `HeatmapWidget` (`update_view(habit, stats, range)`), `MetricTile` (`set_metric(icon, value, label, color)` — four instances form the stats row). Widget methods that rebuild display are named `_build_content` — never `_render` (conflicts with Textual's internal rendering pipeline and causes `TypeError`). The habit list must be explicitly `.focus()`-ed in `on_mount`, otherwise a hidden `Input` can capture keystrokes meant for app bindings.
 
 **`shell.py`** — idempotent `~/.zshrc` block management. Uses `_MARKER_START`/`_MARKER_END` string delimiters to locate and strip the block.
 
