@@ -24,6 +24,24 @@ C_SUCCESS = "#4ade80"
 C_BG = "#0d1117"
 
 
+def today_value(stats: HabitStats) -> str:
+    """Short text for today's logged count, e.g. '3', '3/2', or '0'."""
+    target = stats.habit.target
+    if target:
+        return f"{stats.today_count}/{target}"
+    return str(stats.today_count)
+
+
+def today_color(stats: HabitStats) -> str:
+    """Green if today's goal is met, amber if partial, dim if nothing logged."""
+    if stats.today_count <= 0:
+        return _DIM
+    target = stats.habit.target
+    if target and stats.today_count < target:
+        return C_ACCENT
+    return C_SUCCESS
+
+
 class HabitListItem(ListItem):
     """A two-line habit card in the sidebar list."""
 
@@ -63,8 +81,11 @@ class HabitListItem(ListItem):
             if stats.current_streak
             else f"[{_DIM}]— no streak[/]"
         )
-        pct = f"[{_DIM}]· {stats.completion_rate * 100:.0f}%[/]"
-        bottom = f"[{_DIM}]   [/]{streak}  {pct}"
+        if stats.today_count > 0:
+            tail = f"[{today_color(stats)}]· {today_value(stats)} today[/]"
+        else:
+            tail = f"[{_DIM}]· {stats.completion_rate * 100:.0f}%[/]"
+        bottom = f"[{_DIM}]   [/]{streak}  {tail}"
 
         return Text.from_markup(f"{top}\n{bottom}")
 

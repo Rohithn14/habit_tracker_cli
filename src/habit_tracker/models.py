@@ -30,4 +30,5 @@ class HabitStats:
     completion_rate: float
     total_completions: int
     done_today: bool
+    today_count: int = 0
     entries: list[Entry] = field(default_factory=list)

@@ -84,6 +84,7 @@ def build_stats(
         completion_rate=completion_rate(entries, since, today),
         total_completions=len({e.date for e in entries}),
         done_today=any(e.date == today for e in entries),
+        today_count=sum(e.count for e in entries if e.date == today),
         entries=entries,
     )
 

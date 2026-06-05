@@ -29,6 +29,10 @@ The data flow is: **CLI/TUI** → **storage.py** (SQLite) + **stats.py** (pure l
 
 **`tui/app.py`** + **`tui/widgets.py`** — Textual app. Lazy-imported: only inside the `tui` CLI command, never at module top level (keeps shell startup fast). A custom `HABIT_THEME` (`textual.theme.Theme`) is registered in `on_mount` and drives `$primary`/`$secondary`/`$accent` in the CSS; markup strings use the matching hardcoded hex constants (`C_PRIMARY`, `C_ACCENT`, …) since Rich `Text.from_markup` does not resolve `$` theme tokens. Widgets: `HabitListItem` (two-line sidebar card), `HeatmapWidget` (`update_view(habit, stats, range)`), `MetricTile` (`set_metric(icon, value, label, color)` — four instances form the stats row). Widget methods that rebuild display are named `_build_content` — never `_render` (conflicts with Textual's internal rendering pipeline and causes `TypeError`). The habit list must be explicitly `.focus()`-ed in `on_mount`, otherwise a hidden `Input` can capture keystrokes meant for app bindings.
 
+**`tui/commands.py`** — `HabitCommands(Provider)` powers the Ctrl+P command palette (registered via `HabitApp.COMMANDS`). It builds a fresh command list each search from `app._habits`, yielding both static actions (mark done, log count, add, delete, range switches) and per-habit `Open:`/`Done today:` jumps. The palette's dated default look is overridden in `HabitApp.CSS` (selectors: `CommandPalette > Vertical`, `CommandPalette #--input`, `SearchIcon`, `CommandList`, `.option-list--option-highlighted`).
+
+**Today's count**: `HabitStats.today_count` (sum of today's entry counts) drives the title-bar badge, sidebar sub-line, and the first `TODAY` metric tile. `today_value()`/`today_color()` in `widgets.py` format it (green if target met, amber if partial).
+
 **`shell.py`** — idempotent `~/.zshrc` block management. Uses `_MARKER_START`/`_MARKER_END` string delimiters to locate and strip the block.
 
 **`cli.py`** — Typer app. `_callback` calls `init_db()` on every invocation. `summary` command wraps all logic in `try/except: pass`. `tui` command does `from habit_tracker.tui.app import HabitApp` inline.

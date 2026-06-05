@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from habit_tracker.models import Entry
+from habit_tracker.models import Entry, Habit
 from habit_tracker.stats import (
     build_stats,
     completion_rate,
@@ -12,6 +12,10 @@ from habit_tracker.stats import (
     longest_streak,
     range_dates,
 )
+
+
+def _habit(target=None) -> Habit:
+    return Habit(id=1, name="H", emoji="", color="green", target=target, created_at=TODAY)
 
 
 def _entry(habit_id: int, day: date, count: int = 1) -> Entry:
@@ -127,6 +131,23 @@ class TestCompletionRate:
 
 
 # ── range_dates ───────────────────────────────────────────────────────────────
+
+class TestTodayCount:
+    def test_no_entry_today_is_zero(self):
+        stats = build_stats(_habit(), [_entry(1, TODAY - timedelta(days=1), 3)], today=TODAY)
+        assert stats.today_count == 0
+        assert not stats.done_today
+
+    def test_single_entry_today(self):
+        stats = build_stats(_habit(), [_entry(1, TODAY, 5)], today=TODAY)
+        assert stats.today_count == 5
+        assert stats.done_today
+
+    def test_only_today_counted(self):
+        entries = [_entry(1, TODAY, 2), _entry(1, TODAY - timedelta(days=1), 9)]
+        stats = build_stats(_habit(target=2), entries, today=TODAY)
+        assert stats.today_count == 2
+
 
 class TestRangeDates:
     def test_year(self):
