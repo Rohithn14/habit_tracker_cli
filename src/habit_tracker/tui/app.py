@@ -26,7 +26,10 @@ from habit_tracker.tui.widgets import (
     HabitListItem,
     HeatmapWidget,
     MetricTile,
+    today_color,
+    today_value,
 )
+from habit_tracker.tui.commands import HabitCommands
 
 _RANGES = ["year", "quarter", "month"]
 _DIM = "#7d8590"
@@ -54,6 +57,8 @@ HABIT_THEME = Theme(
 
 class HabitApp(App):
     """Habit tracker interactive TUI."""
+
+    COMMANDS = {HabitCommands}
 
     CSS = """
     Screen {
@@ -142,6 +147,60 @@ class HabitApp(App):
     Input.-active {
         display: block;
     }
+
+    /* ── Command palette (Ctrl+P) — modernized ───────────── */
+    CommandPalette {
+        background: $background 70%;
+    }
+    CommandPalette > Vertical {
+        margin-top: 6;
+        width: 76;
+        max-width: 90%;
+        border: round $primary;
+        background: $surface;
+        &:dark { background: $surface; }
+    }
+    CommandPalette #--input {
+        height: auto;
+        border: none;
+        border-bottom: solid $primary 30%;
+        padding: 0 1;
+    }
+    CommandPalette #--input.--list-visible {
+        border-bottom: solid $primary 30%;
+    }
+    SearchIcon {
+        color: $accent;
+    }
+    CommandInput, CommandInput:focus {
+        background: transparent;
+        color: $foreground;
+    }
+    CommandList {
+        border: none;
+        background: transparent;
+        padding: 1 0;
+    }
+    CommandList:focus {
+        border: none;
+    }
+    CommandList > .option-list--option {
+        padding: 0 2;
+        color: $foreground;
+    }
+    CommandList > .option-list--option-highlighted {
+        color: $foreground;
+        background: $primary 30%;
+        text-style: bold;
+    }
+    CommandPalette > .command-palette--highlight {
+        color: $accent;
+        text-style: bold;
+    }
+    CommandPalette > .command-palette--help-text {
+        color: $text-muted;
+        text-style: dim not bold;
+    }
     """
 
     BINDINGS = [
@@ -176,10 +235,10 @@ class HabitApp(App):
                 with Vertical(id="heatmap-card"):
                     yield HeatmapWidget(id="heatmap")
                 with Horizontal(id="metrics"):
+                    yield MetricTile(id="m-today")
                     yield MetricTile(id="m-streak")
                     yield MetricTile(id="m-best")
-                    yield MetricTile(id="m-rate")
-                    yield MetricTile(id="m-total", classes="-last")
+                    yield MetricTile(id="m-rate", classes="-last")
         yield Input(placeholder="New habit name — Enter to add, Esc to cancel", id="add-input")
         yield Input(placeholder="Count for today — Enter to log, Esc to cancel", id="count-input")
         yield Footer()
@@ -233,10 +292,11 @@ class HabitApp(App):
         since, _ = range_dates(self._range)
         stats = build_stats(habit, get_entries(habit.id), today=today, since=since)
 
-        # Title bar
+        # Title bar — show today's count prominently
         emoji = habit.emoji or "●"
-        if stats.done_today:
-            badge = f"[b {C_SUCCESS}]●  Done today[/]"
+        if stats.today_count > 0:
+            tcol = today_color(stats)
+            badge = f"[b {tcol}]●  {today_value(stats)} today[/]"
         else:
             badge = f"[{_DIM}]○  Not done today[/]"
         self.query_one("#habit-title", Static).update(f"{emoji}  [b]{habit.name}[/]    {badge}")
@@ -244,7 +304,10 @@ class HabitApp(App):
         # Heatmap
         self.query_one("#heatmap", HeatmapWidget).update_view(habit, stats, self._range)
 
-        # Metric tiles
+        # Metric tiles — Today is first/most prominent
+        self.query_one("#m-today", MetricTile).set_metric(
+            "📅", today_value(stats), "TODAY", today_color(stats)
+        )
         self.query_one("#m-streak", MetricTile).set_metric(
             "🔥", f"{stats.current_streak}", "CURRENT STREAK", C_ACCENT
         )
@@ -254,10 +317,6 @@ class HabitApp(App):
         self.query_one("#m-rate", MetricTile).set_metric(
             "📊", f"{stats.completion_rate * 100:.0f}%", "COMPLETION", C_SUCCESS
         )
-        total_label = "DAYS LOGGED" if not habit.target else f"DAYS · TGT {habit.target}"
-        self.query_one("#m-total", MetricTile).set_metric(
-            "✓", f"{stats.total_completions}", total_label, "#a78bfa"
-        )
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         if isinstance(event.item, HabitListItem):
@@ -266,6 +325,21 @@ class HabitApp(App):
     def _selected_habit(self) -> Habit | None:
         item = self.query_one("#habit-list", ListView).highlighted_child
         return item.habit if isinstance(item, HabitListItem) else None
+
+    def select_habit_by_name(self, name: str) -> None:
+        """Select the habit with the given name in the sidebar (used by the palette)."""
+        lv = self.query_one("#habit-list", ListView)
+        for idx, item in enumerate(lv.query(HabitListItem)):
+            if item.habit.name == name:
+                lv.index = idx
+                self._update_detail(item.habit)
+                break
+        lv.focus()
+
+    def done_habit_by_name(self, name: str) -> None:
+        """Mark a specific habit done today (used by the palette)."""
+        self.select_habit_by_name(name)
+        self.action_mark_done()
 
     def _reload_habit(self, h: Habit) -> None:
         since, _ = range_dates(self._range)
