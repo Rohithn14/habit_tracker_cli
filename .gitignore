@@ -1,8 +1,39 @@
-.venv/
+# Python
 __pycache__/
 *.pyc
 *.pyo
-.pytest_cache/
-dist/
+*.pyd
+*.so
+*.egg
 *.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build / dist
+dist/
+build/
+*.whl
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Linters / formatters
 .ruff_cache/
+.mypy_cache/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
