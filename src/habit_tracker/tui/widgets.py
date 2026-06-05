@@ -173,6 +173,6 @@ class StatsWidget(Static):
 
         lines += [
             "",
-            "[dim]Keys: [bold]d[/bold]=done  [bold]u[/bold]=undo  [bold]a[/bold]=add  [bold]x[/bold]=delete  [bold]1/2/3[/bold]=range  [bold]q[/bold]=quit[/dim]",
+            "[dim]Keys: [bold]d[/bold]=done  [bold]c[/bold]=log count  [bold]u[/bold]=undo  [bold]a[/bold]=add  [bold]x[/bold]=delete  [bold]1/2/3[/bold]=range  [bold]q[/bold]=quit[/dim]",
         ]
         return Text.from_markup("\n".join(lines))
