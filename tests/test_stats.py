@@ -8,9 +8,11 @@ from habit_tracker.stats import (
     build_stats,
     completion_rate,
     current_streak,
+    day_of_week_bias,
     intensity_bucket,
     longest_streak,
     range_dates,
+    rolling_completion,
 )
 from habit_tracker.render.heatmap import _week_start_offset
 
@@ -148,6 +150,69 @@ class TestTodayCount:
         entries = [_entry(1, TODAY, 2), _entry(1, TODAY - timedelta(days=1), 9)]
         stats = build_stats(_habit(target=2), entries, today=TODAY)
         assert stats.today_count == 2
+
+
+class TestRollingCompletion:
+    def test_empty_returns_zeros(self):
+        result = rolling_completion([], until=TODAY, days=7)
+        assert result == [0.0] * 7
+
+    def test_length_matches_days(self):
+        result = rolling_completion([], until=TODAY, days=30)
+        assert len(result) == 30
+
+    def test_all_logged_gives_ones(self):
+        from datetime import timedelta
+        entries = [_entry(1, TODAY - timedelta(days=i)) for i in range(14)]
+        result = rolling_completion(entries, window=7, until=TODAY, days=7)
+        assert all(v == 1.0 for v in result)
+
+    def test_no_entries_in_range_gives_zeros(self):
+        result = rolling_completion([], window=7, until=TODAY, days=7)
+        assert result == [0.0] * 7
+
+    def test_partial_window_gives_correct_rate(self):
+        from datetime import timedelta
+        # Log every other day for 14 days
+        entries = [_entry(1, TODAY - timedelta(days=i * 2)) for i in range(7)]
+        result = rolling_completion(entries, window=7, until=TODAY, days=1)
+        # In window [TODAY-6 .. TODAY]: entries at -0,-2,-4,-6 = 4/7
+        assert result[0] == pytest.approx(4 / 7)
+
+
+class TestDayOfWeekBias:
+    def test_empty_returns_zeros(self):
+        result = day_of_week_bias([])
+        assert result == {i: 0.0 for i in range(7)}
+
+    def test_keys_are_zero_to_six(self):
+        result = day_of_week_bias([_entry(1, TODAY)])
+        assert set(result.keys()) == set(range(7))
+
+    def test_single_weekday_is_one(self):
+        # TODAY = 2026-06-05 = Friday = weekday 4
+        result = day_of_week_bias([_entry(1, TODAY)])
+        assert result[4] == 1.0  # Friday always done (only day in range)
+
+    def test_never_done_weekday_is_zero(self):
+        # Log every day for a full week → all weekdays should be close to 1
+        from datetime import timedelta
+        entries = [_entry(1, TODAY - timedelta(days=i)) for i in range(7)]
+        result = day_of_week_bias(entries)
+        assert all(v > 0 for v in result.values())
+
+    def test_all_values_between_zero_and_one(self):
+        from datetime import timedelta
+        entries = [_entry(1, TODAY - timedelta(days=i)) for i in range(0, 30, 3)]
+        result = day_of_week_bias(entries)
+        assert all(0.0 <= v <= 1.0 for v in result.values())
+
+    def test_build_stats_includes_analytics_fields(self):
+        from datetime import timedelta
+        entries = [_entry(1, TODAY - timedelta(days=i)) for i in range(14)]
+        stats = build_stats(_habit(), entries, today=TODAY)
+        assert len(stats.rolling_completion) == 90
+        assert set(stats.day_of_week_bias.keys()) == set(range(7))
 
 
 class TestWeekStartOffset:

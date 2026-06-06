@@ -67,6 +67,55 @@ def completion_rate(
     return len(dated) / total_days
 
 
+def rolling_completion(
+    entries: Sequence[Entry],
+    window: int = 7,
+    until: date | None = None,
+    days: int = 90,
+) -> list[float]:
+    """Return one rolling completion rate per day for the last `days` days.
+
+    Each value = fraction of the preceding `window` days that had an entry.
+    """
+    if until is None:
+        until = date.today()
+    dated = {e.date for e in entries}
+    start = until - timedelta(days=days - 1)
+    results: list[float] = []
+    cursor = start
+    while cursor <= until:
+        window_start = cursor - timedelta(days=window - 1)
+        done = sum(
+            1 for i in range(window)
+            if (window_start + timedelta(days=i)) in dated
+        )
+        results.append(done / window)
+        cursor += timedelta(days=1)
+    return results
+
+
+def day_of_week_bias(entries: Sequence[Entry]) -> dict[int, float]:
+    """Return completion rate per weekday across all history (0=Mon … 6=Sun).
+
+    Rate = logged days on weekday W / total occurrences of W since first entry.
+    """
+    if not entries:
+        return {i: 0.0 for i in range(7)}
+    dated = {e.date for e in entries}
+    since = min(dated)
+    until = max(dated)
+    total = [0] * 7
+    done = [0] * 7
+    cursor = since
+    while cursor <= until:
+        wd = cursor.weekday()
+        total[wd] += 1
+        if cursor in dated:
+            done[wd] += 1
+        cursor += timedelta(days=1)
+    return {wd: (done[wd] / total[wd] if total[wd] else 0.0) for wd in range(7)}
+
+
 def build_stats(
     habit: Habit,
     entries: list[Entry],
@@ -86,6 +135,8 @@ def build_stats(
         done_today=any(e.date == today for e in entries),
         today_count=sum(e.count for e in entries if e.date == today),
         entries=entries,
+        rolling_completion=rolling_completion(entries, until=today),
+        day_of_week_bias=day_of_week_bias(entries),
     )
 
 

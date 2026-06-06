@@ -15,9 +15,9 @@ from habit_tracker.stats import intensity_bucket
 _BLOCK = "■  "
 _BLOCK_NOTE = "■• "   # trailing dot marks days that have a note
 _PALETTE = ["#30363d", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4"]
-_SURFACE = "#161b22"   # card background — used for out-of-range cells so they blend
+_SURFACE = "#161b22"
 _DIM = "#7d8590"
-_NOTE_DOT = "#a78bfa"  # violet dot matches primary theme color
+_NOTE_DOT = "#a78bfa"
 _DAYS_SUNDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 _DAYS_MONDAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _LABEL_ROWS_SUNDAY = (1, 3, 5)
@@ -29,6 +29,12 @@ C_SECONDARY = "#22d3ee"
 C_ACCENT = "#fbbf24"
 C_SUCCESS = "#4ade80"
 C_BG = "#0d1117"
+
+# Sparkline chars (9 levels: 0–8)
+_SPARK = " ▁▂▃▄▅▆▇█"
+# DOW bar
+_WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_BAR_WIDTH = 10
 
 
 def today_value(stats: HabitStats) -> str:
@@ -47,6 +53,14 @@ def today_color(stats: HabitStats) -> str:
     if target and stats.today_count < target:
         return C_ACCENT
     return C_SUCCESS
+
+
+def _rate_color(rate: float) -> str:
+    if rate >= 0.7:
+        return C_SUCCESS
+    if rate >= 0.4:
+        return C_ACCENT
+    return _DIM
 
 
 class HabitListItem(ListItem):
@@ -96,9 +110,23 @@ class HabitListItem(ListItem):
 
         return Text.from_markup(f"{top}\n{bottom}")
 
+    def _make_compact_label(self, habit: Habit, stats: HabitStats) -> Text:
+        emoji = habit.emoji or "●"
+        dot_color = C_SUCCESS if stats.done_today else (_DIM if not stats.current_streak else C_ACCENT)
+        dot = "●" if stats.done_today else ("🔥" if stats.current_streak else "○")
+        return Text.from_markup(f"[b]{emoji}[/]\n[{dot_color}]{dot}[/]")
+
     def refresh_stats(self, stats: HabitStats) -> None:
         self.habit_stats = stats
         self.query_one(Static).update(self._make_label(self.habit, stats))
+
+    def set_compact(self, compact: bool) -> None:
+        if compact:
+            self.styles.height = 2
+            self.query_one(Static).update(self._make_compact_label(self.habit, self.habit_stats))
+        else:
+            self.styles.height = 3
+            self.query_one(Static).update(self._make_label(self.habit, self.habit_stats))
 
 
 class HeatmapWidget(Static):
@@ -114,7 +142,6 @@ class HeatmapWidget(Static):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        # Grid state stored so the click handler can map (x,y) → date
         self._weeks: list[list[tuple[date | None, int]]] = []
         self._habit: Habit | None = None
         self._note_dates: set[date] = set()
@@ -134,8 +161,7 @@ class HeatmapWidget(Static):
             return
         self._habit = habit
         self._note_dates = {e.date for e in stats.entries if e.notes}
-        content = self._build_content(habit, stats, range_name, week_start)
-        self.update(content)
+        self.update(self._build_content(habit, stats, range_name, week_start))
 
     def _build_content(
         self, habit: Habit, stats: HabitStats, range_name: str, week_start: str = "sunday"
@@ -146,10 +172,7 @@ class HeatmapWidget(Static):
         since, until = range_dates(range_name)
         entry_map: dict[date, int] = {e.date: e.count for e in entries}
 
-        if week_start == "monday":
-            offset = since.weekday()
-        else:
-            offset = (since.weekday() + 1) % 7
+        offset = since.weekday() if week_start == "monday" else (since.weekday() + 1) % 7
         grid_start = since - timedelta(days=offset)
 
         weeks: list[list[tuple[date | None, int]]] = []
@@ -169,7 +192,7 @@ class HeatmapWidget(Static):
 
         out = Text()
 
-        # Month labels — scan every day so mid-week month starts are caught
+        # Month labels
         out.append("    ")
         current_month = -1
         for week in weeks:
@@ -197,7 +220,6 @@ class HeatmapWidget(Static):
                 if day_date is None:
                     out.append(_BLOCK, style=_SURFACE)
                 elif day_date in self._note_dates:
-                    # Render the block char in palette color, dot in violet
                     out.append("■", style=_PALETTE[level])
                     out.append("•", style=_NOTE_DOT)
                     out.append(" ")
@@ -216,11 +238,10 @@ class HeatmapWidget(Static):
         return out
 
     def on_click(self, event: events.Click) -> None:
-        # Row 0 = month labels, rows 1–7 = day cells, rows 8+ = legend
         if event.y == 0 or event.y > 7 or not self._weeks:
             return
-        row_idx = event.y - 1          # 0-indexed weekday slot
-        week_col = (event.x - 4) // 3  # subtract 4-char prefix
+        row_idx = event.y - 1
+        week_col = (event.x - 4) // 3
         if week_col < 0 or week_col >= len(self._weeks):
             return
         day_date, _ = self._weeks[week_col][row_idx]
@@ -235,7 +256,6 @@ class DayDetailWidget(Static):
     DayDetailWidget {
         height: auto;
         margin-top: 1;
-        padding: 0 0;
         display: none;
         border-top: dashed $primary 30%;
     }
@@ -253,9 +273,8 @@ class DayDetailWidget(Static):
         self.update("")
 
     def _build_content(self, day: date, entry: Entry | None, habit: Habit) -> Text:
-        today = date.today()
         label = day.strftime("%A, %d %b %Y")
-        is_today = day == today
+        is_today = day == date.today()
 
         out = Text()
         day_str = f"[b {C_SECONDARY}]{label}[/]"
@@ -280,10 +299,74 @@ class DayDetailWidget(Static):
 
         if entry and entry.notes:
             out.append("\n")
-            out.append_text(Text.from_markup(
-                f"  [{C_PRIMARY}]📝[/] [{_DIM}]{entry.notes}[/]"
-            ))
+            out.append_text(Text.from_markup(f"  [{C_PRIMARY}]📝[/] [{_DIM}]{entry.notes}[/]"))
 
+        return out
+
+
+class TrendChartWidget(Static):
+    """7-day rolling completion sparkline over the last 90 days."""
+
+    DEFAULT_CSS = """
+    TrendChartWidget {
+        height: auto;
+    }
+    """
+
+    def update_view(self, stats: HabitStats | None) -> None:
+        if stats is None:
+            self.update("")
+            return
+        self.update(self._build_content(stats.rolling_completion))
+
+    def _build_content(self, data: list[float]) -> Text:
+        out = Text()
+        if not data:
+            out.append_text(Text.from_markup(f"[{_DIM}]No data yet[/]"))
+            return out
+
+        display = data[-91:]
+        current = display[-1]
+        rate_color = _rate_color(current)
+
+        out.append_text(Text.from_markup(
+            f"[{_DIM}]7-day rolling ·[/] [{rate_color}]{current:.0%} now[/]\n"
+        ))
+
+        for v in display:
+            idx = min(int(v * (len(_SPARK) - 1)), len(_SPARK) - 1)
+            char = _SPARK[idx]
+            out.append(char, style=_rate_color(v))
+
+        return out
+
+
+class DayOfWeekWidget(Static):
+    """Horizontal bar chart showing completion rate per weekday."""
+
+    DEFAULT_CSS = """
+    DayOfWeekWidget {
+        height: auto;
+    }
+    """
+
+    def update_view(self, stats: HabitStats | None) -> None:
+        if stats is None:
+            self.update("")
+            return
+        self.update(self._build_content(stats.day_of_week_bias))
+
+    def _build_content(self, bias: dict[int, float]) -> Text:
+        out = Text()
+        for wd in range(7):
+            rate = bias.get(wd, 0.0)
+            filled = round(rate * _BAR_WIDTH)
+            empty = _BAR_WIDTH - filled
+            color = _rate_color(rate)
+            out.append(f"{_WEEKDAY_NAMES[wd]} ", style=_DIM)
+            out.append("█" * filled, style=color)
+            out.append("░" * empty, style=_DIM)
+            out.append(f"  {rate:.0%}\n", style=color)
         return out
 
 
