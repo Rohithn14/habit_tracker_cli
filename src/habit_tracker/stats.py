@@ -72,14 +72,19 @@ def rolling_completion(
     window: int = 7,
     until: date | None = None,
     days: int = 90,
+    target: int | None = None,
 ) -> list[float]:
     """Return one rolling completion rate per day for the last `days` days.
 
-    Each value = fraction of the preceding `window` days that had an entry.
+    Each value = fraction of the preceding `window` days that were "done".
+    Done = any entry when target is None; count >= target otherwise.
     """
     if until is None:
         until = date.today()
-    dated = {e.date for e in entries}
+    if target is not None and target > 0:
+        dated = {e.date for e in entries if e.count >= target}
+    else:
+        dated = {e.date for e in entries}
     start = until - timedelta(days=days - 1)
     results: list[float] = []
     cursor = start
@@ -94,23 +99,31 @@ def rolling_completion(
     return results
 
 
-def day_of_week_bias(entries: Sequence[Entry]) -> dict[int, float]:
-    """Return completion rate per weekday across all history (0=Mon … 6=Sun).
+def day_of_week_bias(
+    entries: Sequence[Entry],
+    target: int | None = None,
+) -> dict[int, float]:
+    """Return target-met rate per weekday across all history (0=Mon … 6=Sun).
 
-    Rate = logged days on weekday W / total occurrences of W since first entry.
+    Done = any entry when target is None; count >= target otherwise.
+    Rate = done days on weekday W / total occurrences of W since first entry.
     """
     if not entries:
         return {i: 0.0 for i in range(7)}
-    dated = {e.date for e in entries}
-    since = min(dated)
-    until = max(dated)
+    if target is not None and target > 0:
+        done_dates = {e.date for e in entries if e.count >= target}
+    else:
+        done_dates = {e.date for e in entries}
+    all_dates = {e.date for e in entries}
+    since = min(all_dates)
+    until = max(all_dates)
     total = [0] * 7
     done = [0] * 7
     cursor = since
     while cursor <= until:
         wd = cursor.weekday()
         total[wd] += 1
-        if cursor in dated:
+        if cursor in done_dates:
             done[wd] += 1
         cursor += timedelta(days=1)
     return {wd: (done[wd] / total[wd] if total[wd] else 0.0) for wd in range(7)}
@@ -135,8 +148,8 @@ def build_stats(
         done_today=any(e.date == today for e in entries),
         today_count=sum(e.count for e in entries if e.date == today),
         entries=entries,
-        rolling_completion=rolling_completion(entries, until=today),
-        day_of_week_bias=day_of_week_bias(entries),
+        rolling_completion=rolling_completion(entries, until=today, target=habit.target),
+        day_of_week_bias=day_of_week_bias(entries, target=habit.target),
     )
 
 

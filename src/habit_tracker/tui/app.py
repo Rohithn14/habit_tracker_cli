@@ -135,6 +135,23 @@ class HabitApp(App):
         height: auto;
     }
 
+    /* ── Day detail card (shown on heatmap click) ────────── */
+    #day-detail-card {
+        height: auto;
+        max-height: 7;
+        background: $surface;
+        border: round $primary 50%;
+        border-title-color: $primary;
+        border-title-style: bold;
+        padding: 1 2;
+        margin-bottom: 1;
+        display: none;
+        overflow-y: auto;
+    }
+    #day-detail-card.-visible {
+        display: block;
+    }
+
     /* ── Analytics row ───────────────────────────────────── */
     #analytics-row {
         height: 11;
@@ -151,7 +168,7 @@ class HabitApp(App):
         margin-right: 1;
     }
     TrendChartWidget {
-        height: auto;
+        height: 1fr;
     }
     #dow-card {
         width: 34;
@@ -252,6 +269,7 @@ class HabitApp(App):
         Binding("3", "set_range_month", "Month"),
         Binding("j,down", "cursor_down", "Down", show=False),
         Binding("k,up", "cursor_up", "Up", show=False),
+        Binding("escape", "cancel_input", "Cancel", show=False, priority=True),
     ]
 
     def __init__(self) -> None:
@@ -274,6 +292,7 @@ class HabitApp(App):
                     yield Static(self._range_pills(), id="range-pills")
                 with Vertical(id="heatmap-card"):
                     yield HeatmapWidget(id="heatmap")
+                with Vertical(id="day-detail-card"):
                     yield DayDetailWidget(id="day-detail")
                 with Horizontal(id="analytics-row"):
                     with Vertical(id="trend-card"):
@@ -344,6 +363,7 @@ class HabitApp(App):
 
     def _update_detail(self, habit: Habit) -> None:
         self.query_one("#day-detail", DayDetailWidget).clear()
+        self.query_one("#day-detail-card").remove_class("-visible")
         today = date.today()
         since, _ = range_dates(self._range)
         stats = build_stats(habit, get_entries(habit.id), today=today, since=since)
@@ -413,6 +433,9 @@ class HabitApp(App):
             return
         from habit_tracker.storage import get_entry
         entry = get_entry(h.id, event.day)
+        card = self.query_one("#day-detail-card")
+        card.add_class("-visible")
+        card.border_title = f"  {event.day.strftime('%a, %d %b %Y')}  "
         self.query_one("#day-detail", DayDetailWidget).show_day(event.day, entry, h)
 
     # ── Responsive layout ─────────────────────────────────────────────────────
@@ -493,8 +516,7 @@ class HabitApp(App):
         elif event.input.id == "note-input":
             self._handle_note_submitted(event.value.strip())
         elif event.input.id == "search-input":
-            # Enter on search just focuses the list
-            event.input.remove_class("-active")
+            # Enter on search keeps filter active and focuses the list
             self.query_one("#habit-list", ListView).focus()
         else:
             self._handle_add_submitted(event.value.strip())
@@ -544,19 +566,22 @@ class HabitApp(App):
             self.notify(f"✓ {h.name} logged ×{n} for today", title="Logged")
         self.query_one("#habit-list", ListView).focus()
 
-    def on_input_key(self, event) -> None:  # type: ignore[override]
-        if event.key == "escape":
-            for inp_id in ("#add-input", "#count-input", "#note-input", "#search-input"):
-                inp = self.query_one(inp_id, Input)
+    def action_cancel_input(self) -> None:
+        cleared_search = False
+        for inp_id in ("#add-input", "#count-input", "#note-input", "#search-input"):
+            inp = self.query_one(inp_id, Input)
+            if "-active" in inp.classes:
+                if inp_id == "#search-input":
+                    cleared_search = True
                 inp.remove_class("-active")
                 inp.value = ""
-            # Restore full list when search is cleared
+        if cleared_search:
             self._filtered_habits = self._habits
             self._rebuild_list(self._habits)
             if self._compact:
                 for item in self.query(HabitListItem):
                     item.set_compact(True)
-            self.query_one("#habit-list", ListView).focus()
+        self.query_one("#habit-list", ListView).focus()
 
     def action_delete_habit(self) -> None:
         h = self._selected_habit()

@@ -255,12 +255,6 @@ class DayDetailWidget(Static):
     DEFAULT_CSS = """
     DayDetailWidget {
         height: auto;
-        margin-top: 1;
-        display: none;
-        border-top: dashed $primary 30%;
-    }
-    DayDetailWidget.-visible {
-        display: block;
     }
     """
 
@@ -309,7 +303,8 @@ class TrendChartWidget(Static):
 
     DEFAULT_CSS = """
     TrendChartWidget {
-        height: auto;
+        height: 1fr;
+        content-align: left middle;
     }
     """
 
@@ -321,22 +316,29 @@ class TrendChartWidget(Static):
 
     def _build_content(self, data: list[float]) -> Text:
         out = Text()
-        if not data:
-            out.append_text(Text.from_markup(f"[{_DIM}]No data yet[/]"))
+        if not data or all(v == 0.0 for v in data):
+            out.append_text(Text.from_markup(f"[{_DIM}]No data yet — log entries to see your trend[/]"))
             return out
 
         display = data[-91:]
         current = display[-1]
-        rate_color = _rate_color(current)
+        avg_30 = sum(display[-30:]) / len(display[-30:]) if len(display) >= 1 else 0.0
+        peak = max(display)
 
         out.append_text(Text.from_markup(
-            f"[{_DIM}]7-day rolling ·[/] [{rate_color}]{current:.0%} now[/]\n"
+            f"[{_DIM}]7-day rolling[/]\n"
         ))
 
         for v in display:
             idx = min(int(v * (len(_SPARK) - 1)), len(_SPARK) - 1)
-            char = _SPARK[idx]
-            out.append(char, style=_rate_color(v))
+            out.append(_SPARK[idx], style=_rate_color(v))
+
+        out.append("\n")
+        out.append_text(Text.from_markup(
+            f"[{_DIM}]Now [/][{_rate_color(current)}]{current:.0%}[/]"
+            f"[{_DIM}]  ·  30d avg [/][{_rate_color(avg_30)}]{avg_30:.0%}[/]"
+            f"[{_DIM}]  ·  peak [/][{_rate_color(peak)}]{peak:.0%}[/]"
+        ))
 
         return out
 

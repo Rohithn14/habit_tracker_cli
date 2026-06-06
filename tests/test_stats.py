@@ -189,17 +189,20 @@ class TestDayOfWeekBias:
         result = day_of_week_bias([_entry(1, TODAY)])
         assert set(result.keys()) == set(range(7))
 
-    def test_single_weekday_is_one(self):
-        # TODAY = 2026-06-05 = Friday = weekday 4
+    def test_single_weekday_is_one_no_target(self):
+        # TODAY = 2026-06-05 = Friday = weekday 4; count=1, no target → done
         result = day_of_week_bias([_entry(1, TODAY)])
-        assert result[4] == 1.0  # Friday always done (only day in range)
+        assert result[4] == 1.0
 
-    def test_never_done_weekday_is_zero(self):
-        # Log every day for a full week → all weekdays should be close to 1
-        from datetime import timedelta
-        entries = [_entry(1, TODAY - timedelta(days=i)) for i in range(7)]
-        result = day_of_week_bias(entries)
-        assert all(v > 0 for v in result.values())
+    def test_partial_count_below_target_not_done(self):
+        # count=2, target=10 → day NOT done → 0%
+        result = day_of_week_bias([_entry(1, TODAY, count=2)], target=10)
+        assert result[4] == 0.0  # Friday (weekday 4): logged but target not met
+
+    def test_count_meets_target_is_done(self):
+        # count=10, target=10 → done → 100%
+        result = day_of_week_bias([_entry(1, TODAY, count=10)], target=10)
+        assert result[4] == 1.0
 
     def test_all_values_between_zero_and_one(self):
         from datetime import timedelta
@@ -213,6 +216,16 @@ class TestDayOfWeekBias:
         stats = build_stats(_habit(), entries, today=TODAY)
         assert len(stats.rolling_completion) == 90
         assert set(stats.day_of_week_bias.keys()) == set(range(7))
+
+    def test_rolling_completion_target_aware(self):
+        # count=2, target=10: day should NOT count as done in rolling
+        result = rolling_completion([_entry(1, TODAY, count=2)], window=7, until=TODAY, days=1, target=10)
+        assert result[0] == 0.0
+
+    def test_rolling_completion_target_met(self):
+        # count=10, target=10: day should count as done
+        result = rolling_completion([_entry(1, TODAY, count=10)], window=7, until=TODAY, days=1, target=10)
+        assert result[0] == pytest.approx(1 / 7)
 
 
 class TestWeekStartOffset:
