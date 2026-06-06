@@ -38,6 +38,31 @@ habit tui
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Layout
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Habit Tracker                              12:34:56        │
+├──────────────────┬──────────────────────────────────────────┤
+│  ✦ Habits        │  🏃 Morning Run  ●  3/3 today            │
+│                  │──────────────────────────────────────────│
+│ > 🏃 Morning Run │  Activity (heatmap)                      │
+│   🔥 3d · 3/3   │  Jan Feb Mar Apr ...                     │
+│   📚 Read 30min  │      ■ ■ ■ ■ ■• ■ ...  (• = note)       │
+│   🧘 Meditate    │  Mon ■ ■ ■ ■ ■ ■ ...                    │
+│                  │      [day detail on click]               │
+│                  │──────────────────────────────────────────│
+│                  │  Trend             │  By Day             │
+│                  │  7-day rolling 85% │  Mon ████████  82%  │
+│                  │  ▁▂▄▅▆▇█▇█▆▇█     │  Tue ██████░░  60%  │
+│                  │                    │  ...                │
+│                  │──────────────────────────────────────────│
+│                  │  📅 TODAY │ 🔥 3d │ 🏆 12d │ 📊 80%     │
+├──────────────────┴──────────────────────────────────────────┤
+│  q Quit  d Done  c Count  u Undo  n Note  a Add  x Delete   │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ## Keybindings
 
 | Key | Action |
@@ -46,6 +71,7 @@ habit tui
 | `c` | Log a custom count for today |
 | `u` | Undo today's entry for the selected habit |
 | `n` | Add or edit a note for today's entry |
+| `/` | Open the sidebar search filter |
 | `a` | Show the add-habit input bar; type a name and press Enter |
 | `x` | Delete the selected habit (and all its entries) |
 | `1` | Switch to **year** range |
@@ -54,7 +80,7 @@ habit tui
 | `j` or `↓` | Move selection down |
 | `k` or `↑` | Move selection up |
 | `Ctrl+P` | Open the command palette |
-| `Esc` | Cancel any active input |
+| `Esc` | Cancel any active input / clear search |
 | `q` | Quit |
 
 ## Adding a habit
@@ -70,6 +96,23 @@ Press `n` — an input bar appears at the bottom pre-filled with any existing no
 Click any colored cell in the **Activity** section to see that day's detail panel below the heatmap: the date, logged count (with % of target if set), and note if one exists. Clicking another cell updates the panel; switching habits clears it.
 
 Cells with notes show a violet `•` marker (`■•`) — the legend at the bottom of the heatmap explains the indicator.
+
+## Searching / filtering habits
+
+Press `/` — a search bar appears at the bottom. Typing immediately filters the sidebar to matching habits. Press `Esc` to clear the filter and restore the full list.
+
+The search is also available from the command palette (`Ctrl+P → Search habits…`).
+
+## Analytics panels
+
+Below the heatmap, two cards are always visible:
+
+- **Trend** — a Unicode sparkline of the 7-day rolling completion rate over the last 90 days. The current rate is shown in green (≥70%), amber (≥40%), or dim (<40%).
+- **By Day** — a horizontal bar chart showing your completion rate for each weekday (Mon–Sun) across all history. Useful for spotting which days you tend to skip.
+
+On narrow terminals (< 100 columns) both panels are hidden automatically and the sidebar collapses to icon-only view.
+
+The CLI command `habit show NAME` also prints the day-of-week breakdown below the stats panel.
 
 ## Notifications
 
