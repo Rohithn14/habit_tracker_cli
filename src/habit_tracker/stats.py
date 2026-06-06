@@ -67,6 +67,67 @@ def completion_rate(
     return len(dated) / total_days
 
 
+def rolling_completion(
+    entries: Sequence[Entry],
+    window: int = 7,
+    until: date | None = None,
+    days: int = 90,
+    target: int | None = None,
+) -> list[float]:
+    """Return one rolling completion rate per day for the last `days` days.
+
+    Each value = average fraction of the preceding `window` days completed.
+    Fraction = min(count/target, 1.0) when target set; 1.0 for any entry otherwise.
+    """
+    if until is None:
+        until = date.today()
+    if target is not None and target > 0:
+        dated: dict[date, float] = {e.date: min(e.count / target, 1.0) for e in entries}
+    else:
+        dated = {e.date: 1.0 for e in entries}
+    start = until - timedelta(days=days - 1)
+    results: list[float] = []
+    cursor = start
+    while cursor <= until:
+        window_start = cursor - timedelta(days=window - 1)
+        total = sum(
+            dated.get(window_start + timedelta(days=i), 0.0)
+            for i in range(window)
+        )
+        results.append(total / window)
+        cursor += timedelta(days=1)
+    return results
+
+
+def day_of_week_bias(
+    entries: Sequence[Entry],
+    target: int | None = None,
+) -> dict[int, float]:
+    """Return average completion fraction per weekday across all history (0=Mon … 6=Sun).
+
+    Fraction = min(count/target, 1.0) when target set; 1.0 for any entry otherwise.
+    Rate = sum of daily fractions for weekday W / total occurrences of W since first entry.
+    """
+    if not entries:
+        return {i: 0.0 for i in range(7)}
+    if target is not None and target > 0:
+        date_fractions: dict[date, float] = {e.date: min(e.count / target, 1.0) for e in entries}
+    else:
+        date_fractions = {e.date: 1.0 for e in entries}
+    all_dates = {e.date for e in entries}
+    since = min(all_dates)
+    until = max(all_dates)
+    total = [0] * 7
+    frac_sum = [0.0] * 7
+    cursor = since
+    while cursor <= until:
+        wd = cursor.weekday()
+        total[wd] += 1
+        frac_sum[wd] += date_fractions.get(cursor, 0.0)
+        cursor += timedelta(days=1)
+    return {wd: (frac_sum[wd] / total[wd] if total[wd] else 0.0) for wd in range(7)}
+
+
 def build_stats(
     habit: Habit,
     entries: list[Entry],
@@ -86,6 +147,8 @@ def build_stats(
         done_today=any(e.date == today for e in entries),
         today_count=sum(e.count for e in entries if e.date == today),
         entries=entries,
+        rolling_completion=rolling_completion(entries, until=today, target=habit.target),
+        day_of_week_bias=day_of_week_bias(entries, target=habit.target),
     )
 
 

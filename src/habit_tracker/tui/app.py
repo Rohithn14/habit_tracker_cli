@@ -25,9 +25,11 @@ from habit_tracker.tui.widgets import (
     C_BG,
     C_SUCCESS,
     DayDetailWidget,
+    DayOfWeekWidget,
     HabitListItem,
     HeatmapWidget,
     MetricTile,
+    TrendChartWidget,
     today_color,
     today_value,
 )
@@ -95,6 +97,7 @@ class HabitApp(App):
     #content {
         width: 1fr;
         height: 1fr;
+        layers: base overlay;
     }
     #topbar {
         height: 3;
@@ -130,6 +133,56 @@ class HabitApp(App):
         margin-bottom: 1;
     }
     HeatmapWidget {
+        height: auto;
+    }
+
+    /* ── Day detail overlay (floats over content, no layout cost) ── */
+    DayDetailWidget {
+        layer: overlay;
+        dock: right;
+        width: 46;
+        height: auto;
+        max-height: 16;
+        background: $surface;
+        border: round $primary;
+        border-title-color: $primary;
+        border-title-style: bold;
+        padding: 1 2;
+        display: none;
+        overflow-y: auto;
+    }
+    DayDetailWidget.-visible {
+        display: block;
+    }
+
+    /* ── Analytics row ───────────────────────────────────── */
+    #analytics-row {
+        height: 11;
+        margin-bottom: 1;
+    }
+    #trend-card {
+        width: 1fr;
+        height: 1fr;
+        background: $surface;
+        border: round $secondary 50%;
+        border-title-color: $secondary;
+        border-title-style: bold;
+        padding: 1 2;
+        margin-right: 1;
+    }
+    TrendChartWidget {
+        height: 1fr;
+    }
+    #dow-card {
+        width: 34;
+        height: 1fr;
+        background: $surface;
+        border: round $accent 30%;
+        border-title-color: $accent;
+        border-title-style: bold;
+        padding: 1 2;
+    }
+    DayOfWeekWidget {
         height: auto;
     }
 
@@ -211,6 +264,7 @@ class HabitApp(App):
         Binding("c", "log_count", "Count"),
         Binding("u", "mark_undo", "Undo"),
         Binding("n", "add_note", "Note"),
+        Binding("slash", "search", "Search", show=False),
         Binding("a", "add_habit", "Add"),
         Binding("x", "delete_habit", "Delete"),
         Binding("1", "set_range_year", "Year"),
@@ -218,13 +272,16 @@ class HabitApp(App):
         Binding("3", "set_range_month", "Month"),
         Binding("j,down", "cursor_down", "Down", show=False),
         Binding("k,up", "cursor_up", "Up", show=False),
+        Binding("escape", "cancel_input", "Cancel", show=False, priority=True),
     ]
 
     def __init__(self) -> None:
         super().__init__()
         self._range = "year"
         self._week_start = "sunday"
+        self._compact = False
         self._habits: list[Habit] = []
+        self._filtered_habits: list[Habit] = []
         self._stats: dict[int, HabitStats] = {}
 
     def compose(self) -> ComposeResult:
@@ -238,15 +295,21 @@ class HabitApp(App):
                     yield Static(self._range_pills(), id="range-pills")
                 with Vertical(id="heatmap-card"):
                     yield HeatmapWidget(id="heatmap")
-                    yield DayDetailWidget(id="day-detail")
+                with Horizontal(id="analytics-row"):
+                    with Vertical(id="trend-card"):
+                        yield TrendChartWidget(id="trend-chart")
+                    with Vertical(id="dow-card"):
+                        yield DayOfWeekWidget(id="dow-chart")
                 with Horizontal(id="metrics"):
                     yield MetricTile(id="m-today")
                     yield MetricTile(id="m-streak")
                     yield MetricTile(id="m-best")
                     yield MetricTile(id="m-rate", classes="-last")
+                yield DayDetailWidget(id="day-detail")
         yield Input(placeholder="New habit name — Enter to add, Esc to cancel", id="add-input")
         yield Input(placeholder="Count for today — Enter to log, Esc to cancel", id="count-input")
         yield Input(placeholder="Note for today — Enter to save, Esc to cancel", id="note-input")
+        yield Input(placeholder="Filter habits — Esc to clear", id="search-input")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -259,6 +322,8 @@ class HabitApp(App):
         self.sub_title = "contribution heatmaps in your terminal"
         self.query_one("#habit-list", ListView).border_title = "✦  Habits"
         self.query_one("#heatmap-card", Vertical).border_title = "  Activity  "
+        self.query_one("#trend-card", Vertical).border_title = "  Trend  "
+        self.query_one("#dow-card", Vertical).border_title = "  By Day  "
         self._load_habits()
         self.query_one("#habit-list", ListView).focus()
 
@@ -276,21 +341,23 @@ class HabitApp(App):
     # ── Data loading / detail rendering ───────────────────────────────────────
     def _load_habits(self) -> None:
         self._habits = list_habits()
+        self._filtered_habits = self._habits
         today = date.today()
         since, _ = range_dates(self._range)
         self._stats = {
             h.id: build_stats(h, get_entries(h.id), today=today, since=since)
             for h in self._habits
         }
+        self._rebuild_list(self._filtered_habits)
 
+    def _rebuild_list(self, habits: list[Habit]) -> None:
         lv = self.query_one("#habit-list", ListView)
         lv.clear()
-        for h in self._habits:
+        for h in habits:
             lv.append(HabitListItem(h, self._stats[h.id]))
-
-        if self._habits:
+        if habits:
             lv.index = 0
-            self._update_detail(self._habits[0])
+            self._update_detail(habits[0])
         else:
             self.query_one("#habit-title", Static).update(
                 f"[{_DIM}]No habits yet — press [b]a[/b] to add one[/]"
@@ -302,7 +369,7 @@ class HabitApp(App):
         since, _ = range_dates(self._range)
         stats = build_stats(habit, get_entries(habit.id), today=today, since=since)
 
-        # Title bar — show today's count prominently
+        # Title bar
         emoji = habit.emoji or "●"
         if stats.today_count > 0:
             tcol = today_color(stats)
@@ -311,10 +378,13 @@ class HabitApp(App):
             badge = f"[{_DIM}]○  Not done today[/]"
         self.query_one("#habit-title", Static).update(f"{emoji}  [b]{habit.name}[/]    {badge}")
 
-        # Heatmap
         self.query_one("#heatmap", HeatmapWidget).update_view(habit, stats, self._range, self._week_start)
 
-        # Metric tiles — Today is first/most prominent
+        # Analytics
+        self.query_one("#trend-chart", TrendChartWidget).update_view(stats)
+        self.query_one("#dow-chart", DayOfWeekWidget).update_view(stats)
+
+        # Metric tiles
         self.query_one("#m-today", MetricTile).set_metric(
             "📅", today_value(stats), "TODAY", today_color(stats)
         )
@@ -337,7 +407,6 @@ class HabitApp(App):
         return item.habit if isinstance(item, HabitListItem) else None
 
     def select_habit_by_name(self, name: str) -> None:
-        """Select the habit with the given name in the sidebar (used by the palette)."""
         lv = self.query_one("#habit-list", ListView)
         for idx, item in enumerate(lv.query(HabitListItem)):
             if item.habit.name == name:
@@ -347,17 +416,8 @@ class HabitApp(App):
         lv.focus()
 
     def done_habit_by_name(self, name: str) -> None:
-        """Mark a specific habit done today (used by the palette)."""
         self.select_habit_by_name(name)
         self.action_mark_done()
-
-    def on_heatmap_widget_day_selected(self, event: HeatmapWidget.DaySelected) -> None:
-        h = self._selected_habit()
-        if h is None:
-            return
-        from habit_tracker.storage import get_entry
-        entry = get_entry(h.id, event.day)
-        self.query_one("#day-detail", DayDetailWidget).show_day(event.day, entry, h)
 
     def _reload_habit(self, h: Habit) -> None:
         since, _ = range_dates(self._range)
@@ -367,6 +427,28 @@ class HabitApp(App):
                 item.refresh_stats(self._stats[h.id])
                 break
         self._update_detail(h)
+
+    def on_heatmap_widget_day_selected(self, event: HeatmapWidget.DaySelected) -> None:
+        h = self._selected_habit()
+        if h is None:
+            return
+        from habit_tracker.storage import get_entry
+        entry = get_entry(h.id, event.day)
+        detail = self.query_one("#day-detail", DayDetailWidget)
+        detail.border_title = f"  {event.day.strftime('%a, %d %b %Y')}  "
+        detail.add_class("-visible")
+        detail.show_day(event.day, entry, h)
+
+    # ── Responsive layout ─────────────────────────────────────────────────────
+    def on_resize(self, event) -> None:  # type: ignore[override]
+        compact = event.size.width < 100
+        if compact == self._compact:
+            return
+        self._compact = compact
+        self.query_one("#sidebar").styles.width = 8 if compact else 34
+        self.query_one("#analytics-row").display = not compact
+        for item in self.query(HabitListItem):
+            item.set_compact(compact)
 
     # ── Actions ───────────────────────────────────────────────────────────────
     def action_mark_done(self) -> None:
@@ -404,18 +486,39 @@ class HabitApp(App):
         if h is None:
             return
         inp = self.query_one("#note-input", Input)
-        # Pre-populate with existing note for today if any
         from habit_tracker.storage import get_entry
         existing = get_entry(h.id, date.today())
         inp.value = existing.notes or "" if existing else ""
         inp.add_class("-active")
         inp.focus()
 
+    def action_search(self) -> None:
+        inp = self.query_one("#search-input", Input)
+        inp.add_class("-active")
+        inp.focus()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "search-input":
+            return
+        query = event.value.strip().lower()
+        if query:
+            self._filtered_habits = [h for h in self._habits if query in h.name.lower()]
+        else:
+            self._filtered_habits = self._habits
+        self._rebuild_list(self._filtered_habits)
+        # Keep compact state after rebuild
+        if self._compact:
+            for item in self.query(HabitListItem):
+                item.set_compact(True)
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "count-input":
             self._handle_count_submitted(event.value.strip())
         elif event.input.id == "note-input":
             self._handle_note_submitted(event.value.strip())
+        elif event.input.id == "search-input":
+            # Enter on search keeps filter active and focuses the list
+            self.query_one("#habit-list", ListView).focus()
         else:
             self._handle_add_submitted(event.value.strip())
 
@@ -464,13 +567,22 @@ class HabitApp(App):
             self.notify(f"✓ {h.name} logged ×{n} for today", title="Logged")
         self.query_one("#habit-list", ListView).focus()
 
-    def on_input_key(self, event) -> None:  # type: ignore[override]
-        if event.key == "escape":
-            for inp_id in ("#add-input", "#count-input", "#note-input"):
-                inp = self.query_one(inp_id, Input)
+    def action_cancel_input(self) -> None:
+        cleared_search = False
+        for inp_id in ("#add-input", "#count-input", "#note-input", "#search-input"):
+            inp = self.query_one(inp_id, Input)
+            if "-active" in inp.classes:
+                if inp_id == "#search-input":
+                    cleared_search = True
                 inp.remove_class("-active")
                 inp.value = ""
-            self.query_one("#habit-list", ListView).focus()
+        if cleared_search:
+            self._filtered_habits = self._habits
+            self._rebuild_list(self._habits)
+            if self._compact:
+                for item in self.query(HabitListItem):
+                    item.set_compact(True)
+        self.query_one("#habit-list", ListView).focus()
 
     def action_delete_habit(self) -> None:
         h = self._selected_habit()

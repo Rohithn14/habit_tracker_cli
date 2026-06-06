@@ -33,3 +33,5 @@ class HabitStats:
     done_today: bool
     today_count: int = 0
     entries: list[Entry] = field(default_factory=list)
+    rolling_completion: list[float] = field(default_factory=list)
+    day_of_week_bias: dict[int, float] = field(default_factory=dict)

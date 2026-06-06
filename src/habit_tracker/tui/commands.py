@@ -18,6 +18,8 @@ class HabitCommands(Provider):
             ("✓  Mark current habit done", "Log today for the selected habit", app.action_mark_done),
             ("#  Log count for today…", "Enter a custom count for the selected habit", app.action_log_count),
             ("↩  Undo today", "Remove today's entry for the selected habit", app.action_mark_undo),
+            ("📝  Note for today…", "Attach a text note to today's entry", app.action_add_note),
+            ("🔍  Search habits…", "Filter the sidebar by habit name", app.action_search),
             ("+  Add habit…", "Create a new habit", app.action_add_habit),
             ("🗑  Delete current habit", "Delete the selected habit and its history", app.action_delete_habit),
             ("📅  Range: Year", "Show the whole year", lambda: app._set_range("year")),

@@ -1,13 +1,15 @@
 """Rich stats panel shown below/beside the heatmap."""
 from __future__ import annotations
 
-from rich.columns import Columns
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 from habit_tracker.models import HabitStats
+
+_WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_BAR_WIDTH = 12
 
 
 def render_stats_panel(stats: HabitStats, console: Console | None = None) -> None:
@@ -38,3 +40,27 @@ def render_stats_panel(stats: HabitStats, console: Console | None = None) -> Non
 
     title = f"{stats.habit.emoji} {stats.habit.name}" if stats.habit.emoji else stats.habit.name
     console.print(Panel(grid, title=f"[bold]{title}[/bold]", expand=False))
+
+    # Day-of-week breakdown
+    if stats.day_of_week_bias:
+        dow_grid = Table.grid(padding=(0, 1))
+        dow_grid.add_column(justify="left", width=4)
+        dow_grid.add_column(justify="left", width=_BAR_WIDTH)
+        dow_grid.add_column(justify="right", width=5)
+        for wd in range(7):
+            rate = stats.day_of_week_bias.get(wd, 0.0)
+            filled = round(rate * _BAR_WIDTH)
+            empty = _BAR_WIDTH - filled
+            if rate >= 0.7:
+                bar_color = "green"
+            elif rate >= 0.4:
+                bar_color = "yellow"
+            else:
+                bar_color = "bright_black"
+            bar = Text("█" * filled, style=bar_color) + Text("░" * empty, style="bright_black")
+            dow_grid.add_row(
+                Text(_WEEKDAY_NAMES[wd], style="dim"),
+                bar,
+                Text(f"{rate:.0%}", style=bar_color),
+            )
+        console.print(Panel(dow_grid, title="[bold]By Day of Week[/bold]", expand=False))
