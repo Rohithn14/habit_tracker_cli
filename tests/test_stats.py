@@ -12,6 +12,7 @@ from habit_tracker.stats import (
     longest_streak,
     range_dates,
 )
+from habit_tracker.render.heatmap import _week_start_offset
 
 
 def _habit(target=None) -> Habit:
@@ -147,6 +148,34 @@ class TestTodayCount:
         entries = [_entry(1, TODAY, 2), _entry(1, TODAY - timedelta(days=1), 9)]
         stats = build_stats(_habit(target=2), entries, today=TODAY)
         assert stats.today_count == 2
+
+
+class TestWeekStartOffset:
+    # date(2026, 6, 5) is a Friday → weekday()=4
+    # Sunday-start offset: (4 + 1) % 7 = 5
+    # Monday-start offset: 4 % 7 = 4
+    def test_sunday_start_friday(self):
+        d = date(2026, 6, 5)  # Friday
+        assert _week_start_offset(d, "sunday") == 5
+
+    def test_monday_start_friday(self):
+        d = date(2026, 6, 5)  # Friday
+        assert _week_start_offset(d, "monday") == 4
+
+    def test_sunday_start_sunday(self):
+        # Sunday weekday() = 6 → (6+1)%7 = 0 (no padding)
+        d = date(2026, 6, 7)  # Sunday
+        assert _week_start_offset(d, "sunday") == 0
+
+    def test_monday_start_monday(self):
+        # Monday weekday() = 0 → 0 (no padding)
+        d = date(2026, 6, 1)  # Monday
+        assert _week_start_offset(d, "monday") == 0
+
+    def test_sunday_start_monday(self):
+        # Monday weekday() = 0 → (0+1)%7 = 1
+        d = date(2026, 6, 1)  # Monday
+        assert _week_start_offset(d, "sunday") == 1
 
 
 class TestRangeDates:

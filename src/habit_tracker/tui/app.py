@@ -17,6 +17,7 @@ from habit_tracker.storage import (
     list_habits,
     log_entry,
     remove_entry,
+    set_entry_note,
 )
 from habit_tracker.stats import build_stats, range_dates
 from habit_tracker.tui.widgets import (
@@ -208,6 +209,7 @@ class HabitApp(App):
         Binding("d", "mark_done", "Done"),
         Binding("c", "log_count", "Count"),
         Binding("u", "mark_undo", "Undo"),
+        Binding("n", "add_note", "Note"),
         Binding("a", "add_habit", "Add"),
         Binding("x", "delete_habit", "Delete"),
         Binding("1", "set_range_year", "Year"),
@@ -220,6 +222,7 @@ class HabitApp(App):
     def __init__(self) -> None:
         super().__init__()
         self._range = "year"
+        self._week_start = "sunday"
         self._habits: list[Habit] = []
         self._stats: dict[int, HabitStats] = {}
 
@@ -241,9 +244,13 @@ class HabitApp(App):
                     yield MetricTile(id="m-rate", classes="-last")
         yield Input(placeholder="New habit name — Enter to add, Esc to cancel", id="add-input")
         yield Input(placeholder="Count for today — Enter to log, Esc to cancel", id="count-input")
+        yield Input(placeholder="Note for today — Enter to save, Esc to cancel", id="note-input")
         yield Footer()
 
     def on_mount(self) -> None:
+        from habit_tracker.config import load_config
+        cfg = load_config()
+        self._week_start = cfg.get("week_start", "sunday")
         self.register_theme(HABIT_THEME)
         self.theme = "habit"
         self.title = "Habit Tracker"
@@ -302,7 +309,7 @@ class HabitApp(App):
         self.query_one("#habit-title", Static).update(f"{emoji}  [b]{habit.name}[/]    {badge}")
 
         # Heatmap
-        self.query_one("#heatmap", HeatmapWidget).update_view(habit, stats, self._range)
+        self.query_one("#heatmap", HeatmapWidget).update_view(habit, stats, self._range, self._week_start)
 
         # Metric tiles — Today is first/most prominent
         self.query_one("#m-today", MetricTile).set_metric(
@@ -381,9 +388,23 @@ class HabitApp(App):
         inp.add_class("-active")
         inp.focus()
 
+    def action_add_note(self) -> None:
+        h = self._selected_habit()
+        if h is None:
+            return
+        inp = self.query_one("#note-input", Input)
+        # Pre-populate with existing note for today if any
+        from habit_tracker.storage import get_entry
+        existing = get_entry(h.id, date.today())
+        inp.value = existing.notes or "" if existing else ""
+        inp.add_class("-active")
+        inp.focus()
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "count-input":
             self._handle_count_submitted(event.value.strip())
+        elif event.input.id == "note-input":
+            self._handle_note_submitted(event.value.strip())
         else:
             self._handle_add_submitted(event.value.strip())
 
@@ -399,6 +420,16 @@ class HabitApp(App):
             else:
                 self.notify(f"Habit '{name}' already exists", severity="warning")
             self._load_habits()
+        self.query_one("#habit-list", ListView).focus()
+
+    def _handle_note_submitted(self, text: str) -> None:
+        inp = self.query_one("#note-input", Input)
+        inp.remove_class("-active")
+        inp.value = ""
+        h = self._selected_habit()
+        if h and text:
+            set_entry_note(h.id, date.today(), text)
+            self.notify(f"📝 Note saved for {h.name}", title="Note")
         self.query_one("#habit-list", ListView).focus()
 
     def _handle_count_submitted(self, raw: str) -> None:
@@ -424,7 +455,7 @@ class HabitApp(App):
 
     def on_input_key(self, event) -> None:  # type: ignore[override]
         if event.key == "escape":
-            for inp_id in ("#add-input", "#count-input"):
+            for inp_id in ("#add-input", "#count-input", "#note-input"):
                 inp = self.query_one(inp_id, Input)
                 inp.remove_class("-active")
                 inp.value = ""

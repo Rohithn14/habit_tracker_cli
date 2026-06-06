@@ -14,7 +14,10 @@ _BLOCK = "■  "
 _PALETTE = ["#30363d", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4"]
 _SURFACE = "#161b22"   # card background — used for out-of-range cells so they blend
 _DIM = "#7d8590"
-_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+_DAYS_SUNDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+_DAYS_MONDAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_LABEL_ROWS_SUNDAY = (1, 3, 5)
+_LABEL_ROWS_MONDAY = (0, 2, 4)
 
 # Accent colors used in markup (match theme tokens)
 C_PRIMARY = "#a78bfa"
@@ -97,21 +100,31 @@ class HabitListItem(ListItem):
 class HeatmapWidget(Static):
     """Renders the contribution heatmap for one habit, with a legend."""
 
-    def update_view(self, habit: Habit | None, stats: HabitStats | None, range_name: str) -> None:
+    def update_view(
+        self,
+        habit: Habit | None,
+        stats: HabitStats | None,
+        range_name: str,
+        week_start: str = "sunday",
+    ) -> None:
         if habit is None or stats is None:
             self.update("")
             return
-        self.update(self._build_content(habit, stats, range_name))
+        self.update(self._build_content(habit, stats, range_name, week_start))
 
-    def _build_content(self, habit: Habit, stats: HabitStats, range_name: str) -> Text:
+    def _build_content(
+        self, habit: Habit, stats: HabitStats, range_name: str, week_start: str = "sunday"
+    ) -> Text:
         from habit_tracker.stats import range_dates
 
         entries = stats.entries
         since, until = range_dates(range_name)
         entry_map: dict[date, int] = {e.date: e.count for e in entries}
 
-        # Align grid start to the Sunday on/before `since`
-        offset = (since.weekday() + 1) % 7
+        if week_start == "monday":
+            offset = since.weekday()
+        else:
+            offset = (since.weekday() + 1) % 7
         grid_start = since - timedelta(days=offset)
 
         weeks: list[list[tuple[date | None, int]]] = []
@@ -145,9 +158,11 @@ class HeatmapWidget(Static):
         out.append("\n")
 
         # Day rows
+        days = _DAYS_MONDAY if week_start == "monday" else _DAYS_SUNDAY
+        label_rows = _LABEL_ROWS_MONDAY if week_start == "monday" else _LABEL_ROWS_SUNDAY
         for row_idx in range(7):
-            if row_idx in (1, 3, 5):
-                out.append(f"{_DAYS[row_idx]} ", style=_DIM)
+            if row_idx in label_rows:
+                out.append(f"{days[row_idx]} ", style=_DIM)
             else:
                 out.append("    ")
             for week in weeks:
