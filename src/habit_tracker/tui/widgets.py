@@ -252,31 +252,23 @@ class HeatmapWidget(Static):
 class DayDetailWidget(Static):
     """Shows stats + notes for a single selected day.
 
-    Lives inside #heatmap-card so it doesn't shift the outer layout when shown.
+    Always visible inside its own fixed-height card; shows a placeholder when
+    no cell is selected so the card height never shifts the outer layout.
     """
+
+    _PLACEHOLDER = f"[{_DIM}]← Click any cell in the Activity chart to see that day's details[/]"
 
     DEFAULT_CSS = """
     DayDetailWidget {
         height: auto;
-        max-height: 6;
-        overflow-y: auto;
-        margin-top: 1;
-        padding-top: 1;
-        border-top: solid #a78bfa 30%;
-        display: none;
-    }
-    DayDetailWidget.-visible {
-        display: block;
     }
     """
 
     def show_day(self, day: date, entry: Entry | None, habit: Habit) -> None:
-        self.add_class("-visible")
         self.update(self._build_content(day, entry, habit))
 
     def clear(self) -> None:
-        self.remove_class("-visible")
-        self.update("")
+        self.update(Text.from_markup(self._PLACEHOLDER))
 
     def _build_content(self, day: date, entry: Entry | None, habit: Habit) -> Text:
         label = day.strftime("%A, %d %b %Y")
@@ -341,8 +333,10 @@ class TrendChartWidget(Static):
             f"[{_DIM}]7-day rolling[/]\n"
         ))
 
+        # Scale relative to peak so partial-completion habits always show bars
+        scale = peak if peak > 0.0 else 1.0
         for v in display:
-            idx = min(int(v * (len(_SPARK) - 1)), len(_SPARK) - 1)
+            idx = min(int((v / scale) * (len(_SPARK) - 1)), len(_SPARK) - 1)
             out.append(_SPARK[idx], style=_rate_color(v))
 
         out.append("\n")
