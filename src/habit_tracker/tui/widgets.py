@@ -250,11 +250,23 @@ class HeatmapWidget(Static):
 
 
 class DayDetailWidget(Static):
-    """Shows stats + notes for a single selected day."""
+    """Shows stats + notes for a single selected day.
+
+    Lives inside #heatmap-card so it doesn't shift the outer layout when shown.
+    """
 
     DEFAULT_CSS = """
     DayDetailWidget {
         height: auto;
+        max-height: 6;
+        overflow-y: auto;
+        margin-top: 1;
+        padding-top: 1;
+        border-top: solid #a78bfa 30%;
+        display: none;
+    }
+    DayDetailWidget.-visible {
+        display: block;
     }
     """
 

@@ -194,10 +194,10 @@ class TestDayOfWeekBias:
         result = day_of_week_bias([_entry(1, TODAY)])
         assert result[4] == 1.0
 
-    def test_partial_count_below_target_not_done(self):
-        # count=2, target=10 → day NOT done → 0%
+    def test_partial_count_below_target_fractional(self):
+        # count=2, target=10 → 20% completion → shows as 0.2, not 0.0
         result = day_of_week_bias([_entry(1, TODAY, count=2)], target=10)
-        assert result[4] == 0.0  # Friday (weekday 4): logged but target not met
+        assert result[4] == pytest.approx(0.2)  # Friday (weekday 4): 2/10 = 20%
 
     def test_count_meets_target_is_done(self):
         # count=10, target=10 → done → 100%
@@ -217,10 +217,10 @@ class TestDayOfWeekBias:
         assert len(stats.rolling_completion) == 90
         assert set(stats.day_of_week_bias.keys()) == set(range(7))
 
-    def test_rolling_completion_target_aware(self):
-        # count=2, target=10: day should NOT count as done in rolling
+    def test_rolling_completion_target_partial(self):
+        # count=2, target=10: day counts as 20% (fractional), window=7 → 0.2/7
         result = rolling_completion([_entry(1, TODAY, count=2)], window=7, until=TODAY, days=1, target=10)
-        assert result[0] == 0.0
+        assert result[0] == pytest.approx(0.2 / 7)
 
     def test_rolling_completion_target_met(self):
         # count=10, target=10: day should count as done

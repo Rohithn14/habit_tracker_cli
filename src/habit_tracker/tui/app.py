@@ -135,23 +135,6 @@ class HabitApp(App):
         height: auto;
     }
 
-    /* ── Day detail card (shown on heatmap click) ────────── */
-    #day-detail-card {
-        height: auto;
-        max-height: 7;
-        background: $surface;
-        border: round $primary 50%;
-        border-title-color: $primary;
-        border-title-style: bold;
-        padding: 1 2;
-        margin-bottom: 1;
-        display: none;
-        overflow-y: auto;
-    }
-    #day-detail-card.-visible {
-        display: block;
-    }
-
     /* ── Analytics row ───────────────────────────────────── */
     #analytics-row {
         height: 11;
@@ -292,7 +275,6 @@ class HabitApp(App):
                     yield Static(self._range_pills(), id="range-pills")
                 with Vertical(id="heatmap-card"):
                     yield HeatmapWidget(id="heatmap")
-                with Vertical(id="day-detail-card"):
                     yield DayDetailWidget(id="day-detail")
                 with Horizontal(id="analytics-row"):
                     with Vertical(id="trend-card"):
@@ -363,7 +345,6 @@ class HabitApp(App):
 
     def _update_detail(self, habit: Habit) -> None:
         self.query_one("#day-detail", DayDetailWidget).clear()
-        self.query_one("#day-detail-card").remove_class("-visible")
         today = date.today()
         since, _ = range_dates(self._range)
         stats = build_stats(habit, get_entries(habit.id), today=today, since=since)
@@ -433,9 +414,6 @@ class HabitApp(App):
             return
         from habit_tracker.storage import get_entry
         entry = get_entry(h.id, event.day)
-        card = self.query_one("#day-detail-card")
-        card.add_class("-visible")
-        card.border_title = f"  {event.day.strftime('%a, %d %b %Y')}  "
         self.query_one("#day-detail", DayDetailWidget).show_day(event.day, entry, h)
 
     # ── Responsive layout ─────────────────────────────────────────────────────
