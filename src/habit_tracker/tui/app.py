@@ -97,6 +97,7 @@ class HabitApp(App):
     #content {
         width: 1fr;
         height: 1fr;
+        layers: base overlay;
     }
     #topbar {
         height: 3;
@@ -135,20 +136,23 @@ class HabitApp(App):
         height: auto;
     }
 
-    /* ── Day detail (always visible, fixed height) ──────── */
-    #day-detail-section {
-        height: 5;
+    /* ── Day detail overlay (floats over content, no layout cost) ── */
+    DayDetailWidget {
+        layer: overlay;
+        dock: right;
+        width: 46;
+        height: auto;
+        max-height: 16;
         background: $surface;
-        border: round $primary 40%;
+        border: round $primary;
         border-title-color: $primary;
         border-title-style: bold;
-        padding: 0 2;
-        margin-bottom: 1;
+        padding: 1 2;
+        display: none;
         overflow-y: auto;
     }
-    DayDetailWidget {
-        height: auto;
-        content-align: left middle;
+    DayDetailWidget.-visible {
+        display: block;
     }
 
     /* ── Analytics row ───────────────────────────────────── */
@@ -291,8 +295,6 @@ class HabitApp(App):
                     yield Static(self._range_pills(), id="range-pills")
                 with Vertical(id="heatmap-card"):
                     yield HeatmapWidget(id="heatmap")
-                with Vertical(id="day-detail-section"):
-                    yield DayDetailWidget(id="day-detail")
                 with Horizontal(id="analytics-row"):
                     with Vertical(id="trend-card"):
                         yield TrendChartWidget(id="trend-chart")
@@ -303,6 +305,7 @@ class HabitApp(App):
                     yield MetricTile(id="m-streak")
                     yield MetricTile(id="m-best")
                     yield MetricTile(id="m-rate", classes="-last")
+                yield DayDetailWidget(id="day-detail")
         yield Input(placeholder="New habit name — Enter to add, Esc to cancel", id="add-input")
         yield Input(placeholder="Count for today — Enter to log, Esc to cancel", id="count-input")
         yield Input(placeholder="Note for today — Enter to save, Esc to cancel", id="note-input")
@@ -319,7 +322,6 @@ class HabitApp(App):
         self.sub_title = "contribution heatmaps in your terminal"
         self.query_one("#habit-list", ListView).border_title = "✦  Habits"
         self.query_one("#heatmap-card", Vertical).border_title = "  Activity  "
-        self.query_one("#day-detail-section", Vertical).border_title = "  Day Detail  "
         self.query_one("#trend-card", Vertical).border_title = "  Trend  "
         self.query_one("#dow-card", Vertical).border_title = "  By Day  "
         self._load_habits()
@@ -363,7 +365,6 @@ class HabitApp(App):
 
     def _update_detail(self, habit: Habit) -> None:
         self.query_one("#day-detail", DayDetailWidget).clear()
-        self.query_one("#day-detail-section", Vertical).border_title = "  Day Detail  "
         today = date.today()
         since, _ = range_dates(self._range)
         stats = build_stats(habit, get_entries(habit.id), today=today, since=since)
@@ -433,9 +434,10 @@ class HabitApp(App):
             return
         from habit_tracker.storage import get_entry
         entry = get_entry(h.id, event.day)
-        label = event.day.strftime("%a, %d %b %Y")
-        self.query_one("#day-detail-section", Vertical).border_title = f"  {label}  "
-        self.query_one("#day-detail", DayDetailWidget).show_day(event.day, entry, h)
+        detail = self.query_one("#day-detail", DayDetailWidget)
+        detail.border_title = f"  {event.day.strftime('%a, %d %b %Y')}  "
+        detail.add_class("-visible")
+        detail.show_day(event.day, entry, h)
 
     # ── Responsive layout ─────────────────────────────────────────────────────
     def on_resize(self, event) -> None:  # type: ignore[override]

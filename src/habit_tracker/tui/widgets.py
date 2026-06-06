@@ -268,7 +268,8 @@ class DayDetailWidget(Static):
         self.update(self._build_content(day, entry, habit))
 
     def clear(self) -> None:
-        self.update(Text.from_markup(self._PLACEHOLDER))
+        self.remove_class("-visible")
+        self.update("")
 
     def _build_content(self, day: date, entry: Entry | None, habit: Habit) -> Text:
         label = day.strftime("%A, %d %b %Y")
