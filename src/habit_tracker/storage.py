@@ -47,6 +47,10 @@ def _conn() -> Generator[sqlite3.Connection, None, None]:
 def init_db() -> None:
     with _conn() as con:
         con.executescript(_SCHEMA)
+        # Migration: add notes column to entries if missing (idempotent)
+        existing_cols = {row[1] for row in con.execute("PRAGMA table_info(entries)")}
+        if "notes" not in existing_cols:
+            con.execute("ALTER TABLE entries ADD COLUMN notes TEXT")
 
 
 # ── Habits ────────────────────────────────────────────────────────────────────
@@ -130,14 +134,25 @@ def _row_to_habit(row: tuple) -> Habit:
 
 # ── Entries ───────────────────────────────────────────────────────────────────
 
-def log_entry(habit_id: int, day: date, count: int = 1) -> Entry:
+def log_entry(habit_id: int, day: date, count: int = 1, notes: str | None = None) -> Entry:
     with _conn() as con:
         con.execute(
-            "INSERT INTO entries (habit_id, date, count) VALUES (?,?,?) "
-            "ON CONFLICT(habit_id, date) DO UPDATE SET count=excluded.count",
-            (habit_id, day.isoformat(), count),
+            "INSERT INTO entries (habit_id, date, count, notes) VALUES (?,?,?,?) "
+            "ON CONFLICT(habit_id, date) DO UPDATE SET count=excluded.count, "
+            "notes=CASE WHEN excluded.notes IS NOT NULL THEN excluded.notes ELSE notes END",
+            (habit_id, day.isoformat(), count, notes),
         )
-    return Entry(habit_id=habit_id, date=day, count=count)
+    return Entry(habit_id=habit_id, date=day, count=count, notes=notes)
+
+
+def set_entry_note(habit_id: int, day: date, note: str) -> None:
+    """Upsert an entry's note without changing count (creates a count=1 entry if none exists)."""
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO entries (habit_id, date, count, notes) VALUES (?,?,1,?) "
+            "ON CONFLICT(habit_id, date) DO UPDATE SET notes=excluded.notes",
+            (habit_id, day.isoformat(), note),
+        )
 
 
 def remove_entry(habit_id: int, day: date) -> bool:
@@ -149,15 +164,25 @@ def remove_entry(habit_id: int, day: date) -> bool:
     return cur.rowcount > 0
 
 
+def remove_entries_range(habit_id: int, since: date, until: date) -> int:
+    """Delete all entries for habit_id between since and until (inclusive). Returns count removed."""
+    with _conn() as con:
+        cur = con.execute(
+            "DELETE FROM entries WHERE habit_id=? AND date>=? AND date<=?",
+            (habit_id, since.isoformat(), until.isoformat()),
+        )
+    return cur.rowcount
+
+
 def get_entry(habit_id: int, day: date) -> Entry | None:
     with _conn() as con:
         row = con.execute(
-            "SELECT habit_id, date, count FROM entries WHERE habit_id=? AND date=?",
+            "SELECT habit_id, date, count, notes FROM entries WHERE habit_id=? AND date=?",
             (habit_id, day.isoformat()),
         ).fetchone()
     if row is None:
         return None
-    return Entry(habit_id=row[0], date=date.fromisoformat(row[1]), count=row[2])
+    return Entry(habit_id=row[0], date=date.fromisoformat(row[1]), count=row[2], notes=row[3])
 
 
 def get_entries(
@@ -173,7 +198,7 @@ def get_entries(
     if until:
         clauses.append("date<=?")
         params.append(until.isoformat())
-    sql = f"SELECT habit_id,date,count FROM entries WHERE {' AND '.join(clauses)} ORDER BY date"
+    sql = f"SELECT habit_id,date,count,notes FROM entries WHERE {' AND '.join(clauses)} ORDER BY date"
     with _conn() as con:
         rows = con.execute(sql, params).fetchall()
-    return [Entry(habit_id=r[0], date=date.fromisoformat(r[1]), count=r[2]) for r in rows]
+    return [Entry(habit_id=r[0], date=date.fromisoformat(r[1]), count=r[2], notes=r[3]) for r in rows]

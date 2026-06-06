@@ -2,19 +2,15 @@
 
 ## Exporting
 
-Export all habits and entries to a JSON file:
+Export all habits and entries to a JSON file (default) or flat CSV:
 
 ```bash
-habit export -o backup.json
+habit export -o backup.json               # JSON
+habit export --format csv -o habits.csv   # CSV
+habit export | jq .                       # JSON to stdout
 ```
 
-Or print to stdout (useful for piping):
-
-```bash
-habit export | jq .
-```
-
-### Format
+### JSON format
 
 ```json
 [
@@ -26,11 +22,21 @@ habit export | jq .
     "created_at": "2026-01-01",
     "archived": false,
     "entries": [
-      { "date": "2026-06-01", "count": 2 },
-      { "date": "2026-06-02", "count": 3 }
+      { "date": "2026-06-01", "count": 2, "notes": null },
+      { "date": "2026-06-02", "count": 3, "notes": "felt great" }
     ]
   }
 ]
+```
+
+### CSV format
+
+One row per entry, flat structure:
+
+```
+habit_name,emoji,target,date,count,notes
+Morning Run,🏃,3,2026-06-01,2,
+Morning Run,🏃,3,2026-06-02,3,felt great
 ```
 
 ## Importing

@@ -29,6 +29,8 @@ from habit_tracker.storage import (
     list_habits,
     log_entry,
     remove_entry,
+    remove_entries_range,
+    set_entry_note,
 )
 
 TODAY = date(2026, 6, 5)
@@ -138,7 +140,75 @@ class TestEntryCRUD:
         """Deleting a habit deletes all its entries."""
         log_entry(self.h.id, TODAY)
         delete_habit(self.h.name)
-        # DB should have no entries for this habit
-        # (habit is gone so we test via direct SQL via a new habit with same ID edge case)
-        # Actually just verify no error and habit is gone
         assert get_habit(self.h.name) is None
+
+
+class TestAnnotations:
+    def setup_method(self):
+        self.h = create_habit("NoteHabit")
+
+    def test_log_entry_with_notes(self):
+        e = log_entry(self.h.id, TODAY, notes="felt great")
+        fetched = get_entry(self.h.id, TODAY)
+        assert fetched is not None
+        assert fetched.notes == "felt great"
+
+    def test_set_entry_note_creates_entry(self):
+        set_entry_note(self.h.id, TODAY, "first note")
+        e = get_entry(self.h.id, TODAY)
+        assert e is not None
+        assert e.notes == "first note"
+        assert e.count == 1
+
+    def test_set_entry_note_updates_existing(self):
+        log_entry(self.h.id, TODAY, count=3)
+        set_entry_note(self.h.id, TODAY, "updated note")
+        e = get_entry(self.h.id, TODAY)
+        assert e is not None
+        assert e.notes == "updated note"
+        assert e.count == 3  # count unchanged
+
+    def test_log_entry_preserves_existing_note_when_notes_none(self):
+        log_entry(self.h.id, TODAY, notes="keep me")
+        log_entry(self.h.id, TODAY, count=5)  # no notes arg → preserve
+        e = get_entry(self.h.id, TODAY)
+        assert e is not None
+        assert e.notes == "keep me"
+
+    def test_notes_in_get_entries(self):
+        log_entry(self.h.id, TODAY, notes="hi")
+        entries = get_entries(self.h.id)
+        assert entries[0].notes == "hi"
+
+    def test_notes_default_none(self):
+        log_entry(self.h.id, TODAY)
+        e = get_entry(self.h.id, TODAY)
+        assert e is not None
+        assert e.notes is None
+
+
+class TestRangeUndo:
+    def setup_method(self):
+        self.h = create_habit("RangeHabit")
+
+    def test_remove_entries_range_all(self):
+        from datetime import timedelta
+        for i in range(5):
+            log_entry(self.h.id, TODAY - timedelta(days=i))
+        count = remove_entries_range(self.h.id, TODAY - timedelta(days=4), TODAY)
+        assert count == 5
+        assert get_entries(self.h.id) == []
+
+    def test_remove_entries_range_partial(self):
+        from datetime import timedelta
+        for i in range(5):
+            log_entry(self.h.id, TODAY - timedelta(days=i))
+        # Remove only last 2 days
+        count = remove_entries_range(self.h.id, TODAY - timedelta(days=1), TODAY)
+        assert count == 2
+        remaining = get_entries(self.h.id)
+        assert len(remaining) == 3
+
+    def test_remove_entries_range_empty_returns_zero(self):
+        count = remove_entries_range(self.h.id, TODAY, TODAY)
+        assert count == 0

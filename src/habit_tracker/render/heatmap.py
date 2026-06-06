@@ -19,12 +19,18 @@ _PALETTE = [
 ]
 
 _BLOCK = "■  "  # 3-char cell so 3-letter month labels align
-_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+_DAYS_SUNDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+_DAYS_MONDAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+# Rows to label (Mon, Wed, Fri) differ by start day
+_LABEL_ROWS_SUNDAY = (1, 3, 5)  # Mon, Wed, Fri in Sun-start grid
+_LABEL_ROWS_MONDAY = (0, 2, 4)  # Mon, Wed, Fri in Mon-start grid
 
 
-def _week_start_offset(first_day: date) -> int:
-    """Weekday index of first_day where Sunday=0."""
-    return (first_day.weekday() + 1) % 7
+def _week_start_offset(first_day: date, week_start: str = "sunday") -> int:
+    """Number of days to pad before first_day so the grid starts on the chosen weekday."""
+    if week_start == "monday":
+        return first_day.weekday()          # Mon=0 → no pad; Sun=6 → 6 pad
+    return (first_day.weekday() + 1) % 7   # Mon=1; Sun=0
 
 
 def render_heatmap(
@@ -32,6 +38,7 @@ def render_heatmap(
     entries: list[Entry],
     range_name: str = "year",
     console: Console | None = None,
+    week_start: str = "sunday",
 ) -> None:
     if console is None:
         console = Console()
@@ -39,10 +46,7 @@ def render_heatmap(
     since, until = range_dates(range_name)
     entry_map: dict[date, int] = {e.date: e.count for e in entries}
 
-    # Build a grid: rows = weekdays (Sun=0), cols = ISO weeks
-    # Align so the grid always starts on a Sunday column.
-    # Find the Sunday on or before `since`.
-    offset = _week_start_offset(since)
+    offset = _week_start_offset(since, week_start)
     grid_start = since - timedelta(days=offset)
     grid_end = until
 
@@ -78,10 +82,11 @@ def render_heatmap(
     console.print(month_label_row)
 
     # ── Day rows ──────────────────────────────────────────────────────────────
+    days = _DAYS_MONDAY if week_start == "monday" else _DAYS_SUNDAY
+    label_rows = _LABEL_ROWS_MONDAY if week_start == "monday" else _LABEL_ROWS_SUNDAY
     for row_idx in range(7):
-        day_name = _DAYS[row_idx]
-        # Only print label for Mon, Wed, Fri to match GitHub style
-        if row_idx in (1, 3, 5):
+        day_name = days[row_idx]
+        if row_idx in label_rows:
             prefix = f"{day_name[:3]} "
         else:
             prefix = "    "
@@ -103,6 +108,7 @@ def render_heatmap_text(
     habit: Habit,
     entries: list[Entry],
     range_name: str = "year",
+    week_start: str = "sunday",
 ) -> Text:
     """Return the heatmap as a single Rich Text object (for embedding in TUI)."""
     from io import StringIO
@@ -110,6 +116,6 @@ def render_heatmap_text(
 
     buf = StringIO()
     c = _Console(file=buf, highlight=False, markup=False, width=200)
-    render_heatmap(habit, entries, range_name, console=c)
+    render_heatmap(habit, entries, range_name, console=c, week_start=week_start)
     # Re-build as plain Text — for TUI use the widget approach instead
     return Text(buf.getvalue())

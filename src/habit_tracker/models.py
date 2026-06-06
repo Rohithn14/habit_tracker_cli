@@ -20,6 +20,7 @@ class Entry:
     habit_id: int
     date: date
     count: int = 1
+    notes: str | None = None
 
 
 @dataclass

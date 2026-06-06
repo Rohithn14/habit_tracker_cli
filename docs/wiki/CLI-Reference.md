@@ -48,15 +48,23 @@ habit done "Morning Run" --date 2026-06-01 --count 3
 
 ## `habit undo`
 
-Remove a logged entry.
+Remove a logged entry for a single day or a date range.
 
 ```
 habit undo NAME [--date YYYY-MM-DD]
+habit undo NAME --from YYYY-MM-DD --to YYYY-MM-DD
 ```
 
+| Flag | Description |
+|------|-------------|
+| `--date`, `-d` | Single date to remove (default: today) |
+| `--from` | Start of range to remove |
+| `--to` | End of range to remove (inclusive) |
+
 ```bash
-habit undo "Morning Run"             # removes today
+habit undo "Morning Run"                                    # removes today
 habit undo "Morning Run" --date 2026-06-01
+habit undo "Morning Run" --from 2026-06-01 --to 2026-06-07 # removes a whole week
 ```
 
 ---
@@ -114,15 +122,41 @@ habit rm NAME [--archive] [--force]
 
 ---
 
+## `habit note`
+
+Attach a text note to a habit entry (creates the entry if it doesn't exist yet).
+
+```
+habit note NAME TEXT [--date YYYY-MM-DD]
+```
+
+```bash
+habit note "Morning Run" "felt strong today"
+habit note "Morning Run" "skipped — rain" --date 2026-06-01
+```
+
+Notes are visible in the TUI by clicking the corresponding heatmap cell (violet `•` marks cells that have a note).
+
+---
+
 ## `habit export`
 
-Export all habits and entries to JSON.
+Export all habits and entries to JSON or CSV.
 
 ```
-habit export [-o FILE]
+habit export [-o FILE] [--format json|csv]
 ```
 
-With no `-o`, prints JSON to stdout. With `-o backup.json`, writes to file.
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--output`, `-o` | stdout | Output file path |
+| `--format`, `-f` | `json` | Export format: `json` or `csv` |
+
+```bash
+habit export -o backup.json                # JSON (default)
+habit export --format csv -o habits.csv    # flat CSV
+habit export | jq .                        # JSON to stdout
+```
 
 ---
 

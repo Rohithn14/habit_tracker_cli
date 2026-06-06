@@ -92,18 +92,49 @@ def done(
 def undo(
     name: str = typer.Argument(..., help="Habit name"),
     date_str: Optional[str] = typer.Option(None, "--date", "-d", help="Date (YYYY-MM-DD), defaults to today"),
+    from_str: Optional[str] = typer.Option(None, "--from", help="Start of date range to remove (YYYY-MM-DD)"),
+    to_str: Optional[str] = typer.Option(None, "--to", help="End of date range to remove (YYYY-MM-DD)"),
 ) -> None:
-    """Remove a logged entry for a day."""
-    from habit_tracker.storage import remove_entry
+    """Remove logged entries for a day or a date range (--from / --to)."""
+    from habit_tracker.storage import remove_entry, remove_entries_range
+    h = _require_habit(name)
+    label = f"{h.emoji} {h.name}" if h.emoji else h.name
+
+    if from_str or to_str:
+        since = _parse_date(from_str)
+        until = _parse_date(to_str)
+        if since > until:
+            err_console.print("[red]--from must be on or before --to[/red]")
+            raise typer.Exit(1)
+        count = remove_entries_range(h.id, since, until)
+        if count:
+            console.print(f"[yellow]↩[/yellow] Removed [bold]{count}[/bold] entries for [bold]{label}[/bold] ({since} → {until})")
+        else:
+            err_console.print(f"[dim]No entries found for {label} in that range[/dim]")
+            raise typer.Exit(1)
+    else:
+        day = _parse_date(date_str)
+        removed = remove_entry(h.id, day)
+        if removed:
+            console.print(f"[yellow]↩[/yellow] Removed log for [bold]{label}[/bold] on {day.isoformat()}")
+        else:
+            err_console.print(f"[dim]No entry found for {label} on {day.isoformat()}[/dim]")
+            raise typer.Exit(1)
+
+
+@app.command()
+def note(
+    name: str = typer.Argument(..., help="Habit name"),
+    text: str = typer.Argument(..., help="Note text to attach to today's entry"),
+    date_str: Optional[str] = typer.Option(None, "--date", "-d", help="Date (YYYY-MM-DD), defaults to today"),
+) -> None:
+    """Attach a text note to a habit entry."""
+    from habit_tracker.storage import set_entry_note
     h = _require_habit(name)
     day = _parse_date(date_str)
-    removed = remove_entry(h.id, day)
+    set_entry_note(h.id, day, text)
     label = f"{h.emoji} {h.name}" if h.emoji else h.name
-    if removed:
-        console.print(f"[yellow]↩[/yellow] Removed log for [bold]{label}[/bold] on {day.isoformat()}")
-    else:
-        err_console.print(f"[dim]No entry found for {label} on {day.isoformat()}[/dim]")
-        raise typer.Exit(1)
+    console.print(f"[green]📝[/green] Note saved for [bold]{label}[/bold] on {day.isoformat()}")
 
 
 @app.command(name="list")
@@ -215,32 +246,59 @@ def rm(
 @app.command(name="export")
 def export_cmd(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path (default: stdout)"),
+    fmt: str = typer.Option("json", "--format", "-f", help="Export format: json | csv"),
 ) -> None:
-    """Export all habits and entries to JSON."""
+    """Export all habits and entries to JSON or CSV."""
     import json
+    import csv
+    import sys
     from habit_tracker.storage import list_habits, get_entries
 
     habits = list_habits(include_archived=True)
-    data = []
-    for h in habits:
-        entries = get_entries(h.id)
-        data.append({
-            "name": h.name,
-            "emoji": h.emoji,
-            "color": h.color,
-            "target": h.target,
-            "created_at": h.created_at.isoformat(),
-            "archived": h.archived,
-            "entries": [{"date": e.date.isoformat(), "count": e.count} for e in entries],
-        })
 
-    payload = json.dumps(data, indent=2)
-    if output:
-        with open(output, "w") as f:
-            f.write(payload)
-        console.print(f"[green]✓[/green] Exported {len(data)} habits to [bold]{output}[/bold]")
+    if fmt == "csv":
+        rows = []
+        for h in habits:
+            for e in get_entries(h.id):
+                rows.append({
+                    "habit_name": h.name,
+                    "emoji": h.emoji,
+                    "target": h.target or "",
+                    "date": e.date.isoformat(),
+                    "count": e.count,
+                    "notes": e.notes or "",
+                })
+        fieldnames = ["habit_name", "emoji", "target", "date", "count", "notes"]
+        if output:
+            with open(output, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+            console.print(f"[green]✓[/green] Exported {len(rows)} entries to [bold]{output}[/bold]")
+        else:
+            writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
     else:
-        print(payload)
+        data = []
+        for h in habits:
+            entries = get_entries(h.id)
+            data.append({
+                "name": h.name,
+                "emoji": h.emoji,
+                "color": h.color,
+                "target": h.target,
+                "created_at": h.created_at.isoformat(),
+                "archived": h.archived,
+                "entries": [{"date": e.date.isoformat(), "count": e.count, "notes": e.notes} for e in entries],
+            })
+        payload = json.dumps(data, indent=2)
+        if output:
+            with open(output, "w") as f:
+                f.write(payload)
+            console.print(f"[green]✓[/green] Exported {len(data)} habits to [bold]{output}[/bold]")
+        else:
+            print(payload)
 
 
 @app.command(name="import")
