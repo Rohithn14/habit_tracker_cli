@@ -24,6 +24,7 @@ from habit_tracker.tui.widgets import (
     C_ACCENT,
     C_BG,
     C_SUCCESS,
+    DayDetailWidget,
     HabitListItem,
     HeatmapWidget,
     MetricTile,
@@ -237,6 +238,7 @@ class HabitApp(App):
                     yield Static(self._range_pills(), id="range-pills")
                 with Vertical(id="heatmap-card"):
                     yield HeatmapWidget(id="heatmap")
+                    yield DayDetailWidget(id="day-detail")
                 with Horizontal(id="metrics"):
                     yield MetricTile(id="m-today")
                     yield MetricTile(id="m-streak")
@@ -295,6 +297,7 @@ class HabitApp(App):
             )
 
     def _update_detail(self, habit: Habit) -> None:
+        self.query_one("#day-detail", DayDetailWidget).clear()
         today = date.today()
         since, _ = range_dates(self._range)
         stats = build_stats(habit, get_entries(habit.id), today=today, since=since)
@@ -347,6 +350,14 @@ class HabitApp(App):
         """Mark a specific habit done today (used by the palette)."""
         self.select_habit_by_name(name)
         self.action_mark_done()
+
+    def on_heatmap_widget_day_selected(self, event: HeatmapWidget.DaySelected) -> None:
+        h = self._selected_habit()
+        if h is None:
+            return
+        from habit_tracker.storage import get_entry
+        entry = get_entry(h.id, event.day)
+        self.query_one("#day-detail", DayDetailWidget).show_day(event.day, entry, h)
 
     def _reload_habit(self, h: Habit) -> None:
         since, _ = range_dates(self._range)

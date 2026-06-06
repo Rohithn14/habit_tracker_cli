@@ -4,16 +4,20 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from rich.text import Text
+from textual import events
+from textual.message import Message
 from textual.widgets import ListItem, Static
 
-from habit_tracker.models import Habit, HabitStats
+from habit_tracker.models import Entry, Habit, HabitStats
 from habit_tracker.stats import intensity_bucket
 
 # ── Shared palette (kept in sync with the registered "habit" theme) ────────────
 _BLOCK = "■  "
+_BLOCK_NOTE = "■• "   # trailing dot marks days that have a note
 _PALETTE = ["#30363d", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4"]
 _SURFACE = "#161b22"   # card background — used for out-of-range cells so they blend
 _DIM = "#7d8590"
+_NOTE_DOT = "#a78bfa"  # violet dot matches primary theme color
 _DAYS_SUNDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 _DAYS_MONDAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _LABEL_ROWS_SUNDAY = (1, 3, 5)
@@ -98,7 +102,22 @@ class HabitListItem(ListItem):
 
 
 class HeatmapWidget(Static):
-    """Renders the contribution heatmap for one habit, with a legend."""
+    """Renders the contribution heatmap for one habit, with a legend.
+
+    Posts a DaySelected message when the user clicks a cell.
+    """
+
+    class DaySelected(Message):
+        def __init__(self, day: date) -> None:
+            self.day = day
+            super().__init__()
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # Grid state stored so the click handler can map (x,y) → date
+        self._weeks: list[list[tuple[date | None, int]]] = []
+        self._habit: Habit | None = None
+        self._note_dates: set[date] = set()
 
     def update_view(
         self,
@@ -108,9 +127,15 @@ class HeatmapWidget(Static):
         week_start: str = "sunday",
     ) -> None:
         if habit is None or stats is None:
+            self._weeks = []
+            self._habit = None
+            self._note_dates = set()
             self.update("")
             return
-        self.update(self._build_content(habit, stats, range_name, week_start))
+        self._habit = habit
+        self._note_dates = {e.date for e in stats.entries if e.notes}
+        content = self._build_content(habit, stats, range_name, week_start)
+        self.update(content)
 
     def _build_content(
         self, habit: Habit, stats: HabitStats, range_name: str, week_start: str = "sunday"
@@ -140,6 +165,8 @@ class HeatmapWidget(Static):
                 cursor += timedelta(days=1)
             weeks.append(week)
 
+        self._weeks = weeks
+
         out = Text()
 
         # Month labels — scan every day so mid-week month starts are caught
@@ -167,8 +194,15 @@ class HeatmapWidget(Static):
                 out.append("    ")
             for week in weeks:
                 day_date, level = week[row_idx]
-                color = _SURFACE if day_date is None else _PALETTE[level]
-                out.append(_BLOCK, style=color)
+                if day_date is None:
+                    out.append(_BLOCK, style=_SURFACE)
+                elif day_date in self._note_dates:
+                    # Render the block char in palette color, dot in violet
+                    out.append("■", style=_PALETTE[level])
+                    out.append("•", style=_NOTE_DOT)
+                    out.append(" ")
+                else:
+                    out.append(_BLOCK, style=_PALETTE[level])
             out.append("\n")
 
         # Legend
@@ -177,6 +211,78 @@ class HeatmapWidget(Static):
         for color in _PALETTE:
             out.append("■ ", style=color)
         out.append("More", style=_DIM)
+        out.append(f"   [{_NOTE_DOT}]•[/] = note", style=_DIM)
+
+        return out
+
+    def on_click(self, event: events.Click) -> None:
+        # Row 0 = month labels, rows 1–7 = day cells, rows 8+ = legend
+        if event.y == 0 or event.y > 7 or not self._weeks:
+            return
+        row_idx = event.y - 1          # 0-indexed weekday slot
+        week_col = (event.x - 4) // 3  # subtract 4-char prefix
+        if week_col < 0 or week_col >= len(self._weeks):
+            return
+        day_date, _ = self._weeks[week_col][row_idx]
+        if day_date is not None:
+            self.post_message(self.DaySelected(day_date))
+
+
+class DayDetailWidget(Static):
+    """Shows stats + notes for a single selected day."""
+
+    DEFAULT_CSS = """
+    DayDetailWidget {
+        height: auto;
+        margin-top: 1;
+        padding: 0 0;
+        display: none;
+        border-top: dashed $primary 30%;
+    }
+    DayDetailWidget.-visible {
+        display: block;
+    }
+    """
+
+    def show_day(self, day: date, entry: Entry | None, habit: Habit) -> None:
+        self.add_class("-visible")
+        self.update(self._build_content(day, entry, habit))
+
+    def clear(self) -> None:
+        self.remove_class("-visible")
+        self.update("")
+
+    def _build_content(self, day: date, entry: Entry | None, habit: Habit) -> Text:
+        today = date.today()
+        label = day.strftime("%A, %d %b %Y")
+        is_today = day == today
+
+        out = Text()
+        day_str = f"[b {C_SECONDARY}]{label}[/]"
+        if is_today:
+            day_str += f" [{C_ACCENT}](today)[/]"
+        out.append_text(Text.from_markup(day_str))
+        out.append("\n")
+
+        if entry is None or entry.count == 0:
+            out.append_text(Text.from_markup(f"[{_DIM}]  No entry logged[/]"))
+        else:
+            count = entry.count
+            target = habit.target
+            if target:
+                pct = min(count / target * 100, 100)
+                bar_color = C_SUCCESS if count >= target else C_ACCENT
+                out.append_text(Text.from_markup(
+                    f"  [{bar_color}]Count:[/] [{bar_color}]{count}[/][{_DIM}]/{target}  ({pct:.0f}%)[/]"
+                ))
+            else:
+                out.append_text(Text.from_markup(f"  [{C_SUCCESS}]Count:[/] [{C_SUCCESS}]{count}[/]"))
+
+        if entry and entry.notes:
+            out.append("\n")
+            out.append_text(Text.from_markup(
+                f"  [{C_PRIMARY}]📝[/] [{_DIM}]{entry.notes}[/]"
+            ))
 
         return out
 
