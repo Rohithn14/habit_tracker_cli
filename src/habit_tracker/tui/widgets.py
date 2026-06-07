@@ -5,10 +5,12 @@ from datetime import date, timedelta
 
 from rich.text import Text
 from textual import events
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widgets import ListItem, Static
 
 from habit_tracker.models import Entry, Habit, HabitStats
+from habit_tracker.schedule import is_due
 from habit_tracker.stats import intensity_bucket
 
 # ── Shared palette (kept in sync with the registered "habit" theme) ────────────
@@ -81,10 +83,15 @@ class HabitListItem(ListItem):
     }
     """
 
-    def __init__(self, habit: Habit, stats: HabitStats) -> None:
+    def __init__(self, habit: Habit, stats: HabitStats, compact: bool = False) -> None:
         self.habit = habit
         self.habit_stats = stats
-        super().__init__(Static(self._make_label(habit, stats)))
+        self._compact = compact
+        label = self._make_compact_label(habit, stats) if compact else self._make_label(habit, stats)
+        super().__init__(Static(label))
+
+    def on_mount(self) -> None:
+        self.styles.height = 2 if self._compact else 3
 
     def _make_label(self, habit: Habit, stats: HabitStats) -> Text:
         emoji = habit.emoji or "●"
@@ -121,12 +128,17 @@ class HabitListItem(ListItem):
         self.query_one(Static).update(self._make_label(self.habit, stats))
 
     def set_compact(self, compact: bool) -> None:
-        if compact:
-            self.styles.height = 2
-            self.query_one(Static).update(self._make_compact_label(self.habit, self.habit_stats))
-        else:
-            self.styles.height = 3
-            self.query_one(Static).update(self._make_label(self.habit, self.habit_stats))
+        self._compact = compact
+        self.styles.height = 2 if compact else 3
+        label = (
+            self._make_compact_label(self.habit, self.habit_stats)
+            if compact
+            else self._make_label(self.habit, self.habit_stats)
+        )
+        try:
+            self.query_one(Static).update(label)
+        except NoMatches:
+            pass  # not yet mounted; the constructor already set the correct label
 
 
 class HeatmapWidget(Static):
@@ -223,6 +235,9 @@ class HeatmapWidget(Static):
                     out.append("■", style=_PALETTE[level])
                     out.append("•", style=_NOTE_DOT)
                     out.append(" ")
+                elif level == 0 and not is_due(habit.schedule, day_date):
+                    # Not on this habit's schedule — distinct from a missed due day.
+                    out.append("·  ", style=_SURFACE)
                 else:
                     out.append(_BLOCK, style=_PALETTE[level])
             out.append("\n")

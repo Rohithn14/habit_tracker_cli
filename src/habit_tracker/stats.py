@@ -4,6 +4,11 @@ from datetime import date, timedelta
 from typing import Sequence
 
 from .models import Entry, Habit, HabitStats
+from .schedule import (
+    scheduled_completion_rate,
+    scheduled_current_streak,
+    scheduled_longest_streak,
+)
 
 # GitHub palette indices 0-4 (empty → brightest green)
 _PALETTE = [0, 1, 2, 3, 4]
@@ -138,11 +143,12 @@ def build_stats(
         today = date.today()
     if since is None:
         since = today.replace(month=1, day=1)
+    sched = habit.schedule
     return HabitStats(
         habit=habit,
-        current_streak=current_streak(entries, today),
-        longest_streak=longest_streak(entries),
-        completion_rate=completion_rate(entries, since, today),
+        current_streak=scheduled_current_streak(entries, today, sched),
+        longest_streak=scheduled_longest_streak(entries, sched),
+        completion_rate=scheduled_completion_rate(entries, since, today, sched),
         total_completions=len({e.date for e in entries}),
         done_today=any(e.date == today for e in entries),
         today_count=sum(e.count for e in entries if e.date == today),
@@ -153,14 +159,42 @@ def build_stats(
 
 
 def range_dates(range_name: str, today: date | None = None) -> tuple[date, date]:
-    """Return (since, until) for a named range."""
+    """Return (since, until) for a named or custom range.
+
+    Named:  ``year`` (default) | ``quarter`` | ``month``.
+    Custom: ``last:30d`` / ``last:6w`` (relative window ending today), or an explicit
+            ``YYYY-MM-DD:YYYY-MM-DD`` span.
+    """
     if today is None:
         today = date.today()
-    if range_name == "month":
+    name = range_name.strip().lower()
+
+    if name.startswith("last:"):
+        spec = name[5:]
+        unit = spec[-1]
+        try:
+            n = int(spec[:-1])
+        except ValueError:
+            n = 0
+        days = n * 7 if unit == "w" else n
+        if days > 0:
+            return today - timedelta(days=days - 1), today
+
+    if ":" in range_name and name[:5] not in ("last:",):
+        # explicit YYYY-MM-DD:YYYY-MM-DD
+        try:
+            a, b = range_name.split(":", 1)
+            since, until = date.fromisoformat(a.strip()), date.fromisoformat(b.strip())
+            if since <= until:
+                return since, until
+        except ValueError:
+            pass
+
+    if name == "month":
         since = today.replace(day=1)
-    elif range_name == "quarter":
+    elif name == "quarter":
         quarter_start_month = ((today.month - 1) // 3) * 3 + 1
         since = today.replace(month=quarter_start_month, day=1)
-    else:  # year (default)
+    else:  # year (default) and any unrecognized spec
         since = today.replace(month=1, day=1)
     return since, today

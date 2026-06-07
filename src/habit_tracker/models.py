@@ -13,6 +13,13 @@ class Habit:
     target: int | None
     created_at: date
     archived: bool = False
+    schedule: str | None = None
+    category: str | None = None
+
+    @property
+    def label(self) -> str:
+        """Display name with the emoji prefix when one is set."""
+        return f"{self.emoji} {self.name}" if self.emoji else self.name
 
 
 @dataclass

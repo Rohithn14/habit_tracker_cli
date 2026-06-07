@@ -12,7 +12,11 @@ _WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _BAR_WIDTH = 12
 
 
-def render_stats_panel(stats: HabitStats, console: Console | None = None) -> None:
+def render_stats_panel(
+    stats: HabitStats,
+    console: Console | None = None,
+    range_label: str | None = None,
+) -> None:
     if console is None:
         console = Console()
 
@@ -26,10 +30,12 @@ def render_stats_panel(stats: HabitStats, console: Console | None = None) -> Non
             Text(value, style=style or "bright_white"),
         )
 
-    row("Current streak", f"{stats.current_streak} days", "bold yellow")
-    row("Longest streak", f"{stats.longest_streak} days")
-    row("Completion", f"{stats.completion_rate * 100:.1f}%")
-    row("Total completions", str(stats.total_completions))
+    # Streaks and totals are all-time; completion is scoped to the selected range.
+    span = f" ({range_label})" if range_label else ""
+    row("Current streak (all-time)", f"{stats.current_streak} days", "bold yellow")
+    row("Longest streak (all-time)", f"{stats.longest_streak} days")
+    row(f"Completion{span}", f"{stats.completion_rate * 100:.1f}%")
+    row("Total completions (all-time)", str(stats.total_completions))
     today_val = "✓ Done" if stats.done_today else "· Pending"
     today_style = "bold green" if stats.done_today else "dim"
     row("Today", today_val, today_style)

@@ -44,13 +44,50 @@ def _conn() -> Generator[sqlite3.Connection, None, None]:
         con.close()
 
 
+# ── Migrations ──────────────────────────────────────────────────────────────
+#
+# Versioned schema evolution keyed off SQLite's `PRAGMA user_version`. Each entry
+# in _MIGRATIONS upgrades the DB by exactly one version; index i takes the DB from
+# version i to i+1. init_db() applies every migration with index >= the stored
+# version, then sets user_version to len(_MIGRATIONS). Append-only — never edit or
+# reorder an existing migration, or deployed databases will diverge.
+
+
+def _migration_0001_base(con: sqlite3.Connection) -> None:
+    """Initial schema + the historical `notes` column on entries."""
+    con.executescript(_SCHEMA)
+    cols = {row[1] for row in con.execute("PRAGMA table_info(entries)")}
+    if "notes" not in cols:
+        con.execute("ALTER TABLE entries ADD COLUMN notes TEXT")
+
+
+def _migration_0002_schedule_category(con: sqlite3.Connection) -> None:
+    """Add habit frequency (schedule) and grouping (category) columns."""
+    cols = {row[1] for row in con.execute("PRAGMA table_info(habits)")}
+    if "schedule" not in cols:
+        con.execute("ALTER TABLE habits ADD COLUMN schedule TEXT")
+    if "category" not in cols:
+        con.execute("ALTER TABLE habits ADD COLUMN category TEXT")
+
+
+# Ordered list; index i migrates user_version i -> i+1.
+_MIGRATIONS = [
+    _migration_0001_base,
+    _migration_0002_schedule_category,
+]
+
+# Canonical habit column order shared by all SELECTs and _row_to_habit.
+_HABIT_COLS = "id,name,emoji,color,target,created_at,archived,schedule,category"
+
+
 def init_db() -> None:
+    """Create or upgrade the database to the latest schema version (idempotent)."""
     with _conn() as con:
-        con.executescript(_SCHEMA)
-        # Migration: add notes column to entries if missing (idempotent)
-        existing_cols = {row[1] for row in con.execute("PRAGMA table_info(entries)")}
-        if "notes" not in existing_cols:
-            con.execute("ALTER TABLE entries ADD COLUMN notes TEXT")
+        version = con.execute("PRAGMA user_version").fetchone()[0]
+        for migrate in _MIGRATIONS[version:]:
+            migrate(con)
+        if version != len(_MIGRATIONS):
+            con.execute(f"PRAGMA user_version = {len(_MIGRATIONS)}")
 
 
 # ── Habits ────────────────────────────────────────────────────────────────────
@@ -60,12 +97,15 @@ def create_habit(
     emoji: str = "",
     color: str = "green",
     target: int | None = None,
+    schedule: str | None = None,
+    category: str | None = None,
 ) -> Habit:
     today = date.today().isoformat()
     with _conn() as con:
         cur = con.execute(
-            "INSERT INTO habits (name, emoji, color, target, created_at) VALUES (?,?,?,?,?)",
-            (name, emoji, color, target, today),
+            "INSERT INTO habits (name, emoji, color, target, created_at, schedule, category) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (name, emoji, color, target, today, schedule, category),
         )
         return Habit(
             id=cur.lastrowid,  # type: ignore[arg-type]
@@ -74,13 +114,15 @@ def create_habit(
             color=color,
             target=target,
             created_at=date.today(),
+            schedule=schedule,
+            category=category,
         )
 
 
 def get_habit(name: str) -> Habit | None:
     with _conn() as con:
         row = con.execute(
-            "SELECT id,name,emoji,color,target,created_at,archived FROM habits WHERE name=?",
+            f"SELECT {_HABIT_COLS} FROM habits WHERE name=?",
             (name,),
         ).fetchone()
     return _row_to_habit(row) if row else None
@@ -89,7 +131,7 @@ def get_habit(name: str) -> Habit | None:
 def get_habit_by_id(habit_id: int) -> Habit | None:
     with _conn() as con:
         row = con.execute(
-            "SELECT id,name,emoji,color,target,created_at,archived FROM habits WHERE id=?",
+            f"SELECT {_HABIT_COLS} FROM habits WHERE id=?",
             (habit_id,),
         ).fetchone()
     return _row_to_habit(row) if row else None
@@ -99,11 +141,11 @@ def list_habits(include_archived: bool = False) -> list[Habit]:
     with _conn() as con:
         if include_archived:
             rows = con.execute(
-                "SELECT id,name,emoji,color,target,created_at,archived FROM habits ORDER BY id"
+                f"SELECT {_HABIT_COLS} FROM habits ORDER BY id"
             ).fetchall()
         else:
             rows = con.execute(
-                "SELECT id,name,emoji,color,target,created_at,archived FROM habits WHERE archived=0 ORDER BY id"
+                f"SELECT {_HABIT_COLS} FROM habits WHERE archived=0 ORDER BY id"
             ).fetchall()
     return [_row_to_habit(r) for r in rows]
 
@@ -120,6 +162,53 @@ def delete_habit(name: str) -> bool:
     return cur.rowcount > 0
 
 
+_UNSET = object()
+
+
+def update_habit(
+    habit_id: int,
+    *,
+    name: str | None = None,
+    emoji: str | None = None,
+    color: str | None = None,
+    target: int | None | object = _UNSET,
+    schedule: str | None | object = _UNSET,
+    category: str | None | object = _UNSET,
+) -> Habit | None:
+    """Update the provided fields on a habit; unspecified fields are left unchanged.
+
+    Pass ``target``/``schedule``/``category=None`` explicitly to clear them (the _UNSET
+    sentinel distinguishes "leave alone" from "set to NULL"). Returns the updated Habit,
+    or None if no such habit. Raises sqlite3.IntegrityError on a name collision.
+    """
+    sets: list[str] = []
+    params: list = []
+    if name is not None:
+        sets.append("name=?")
+        params.append(name)
+    if emoji is not None:
+        sets.append("emoji=?")
+        params.append(emoji)
+    if color is not None:
+        sets.append("color=?")
+        params.append(color)
+    if target is not _UNSET:
+        sets.append("target=?")
+        params.append(target)
+    if schedule is not _UNSET:
+        sets.append("schedule=?")
+        params.append(schedule)
+    if category is not _UNSET:
+        sets.append("category=?")
+        params.append(category)
+
+    if sets:
+        params.append(habit_id)
+        with _conn() as con:
+            con.execute(f"UPDATE habits SET {', '.join(sets)} WHERE id=?", params)
+    return get_habit_by_id(habit_id)
+
+
 def _row_to_habit(row: tuple) -> Habit:
     return Habit(
         id=row[0],
@@ -129,6 +218,8 @@ def _row_to_habit(row: tuple) -> Habit:
         target=row[4],
         created_at=date.fromisoformat(row[5]),
         archived=bool(row[6]),
+        schedule=row[7],
+        category=row[8],
     )
 
 

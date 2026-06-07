@@ -19,13 +19,41 @@ _DEFAULTS: dict = {
     "theme": "github",
 }
 
+# Allowed values per known key; keys absent here pass through unchanged.
+_ALLOWED: dict[str, set[str]] = {
+    "default_range": {"year", "quarter", "month"},
+    "week_start": {"sunday", "monday"},
+}
+
+
+def validate_config(cfg: dict) -> dict:
+    """Return a sanitized config: known keys clamped to allowed values (falling back
+    to the default when invalid), unknown keys dropped."""
+    out = dict(_DEFAULTS)
+    for key, default in _DEFAULTS.items():
+        if key not in cfg:
+            continue
+        value = cfg[key]
+        allowed = _ALLOWED.get(key)
+        out[key] = value if (allowed is None or value in allowed) else default
+    return out
+
 
 def load_config() -> dict:
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH, "rb") as f:
             user = tomllib.load(f)
-        return {**_DEFAULTS, **user}
+        return validate_config({**_DEFAULTS, **user})
     return dict(_DEFAULTS)
+
+
+def save_config(cfg: dict) -> None:
+    """Validate and persist config to CONFIG_PATH as TOML."""
+    import tomli_w
+
+    ensure_dirs()
+    with open(CONFIG_PATH, "wb") as f:
+        tomli_w.dump(validate_config(cfg), f)
 
 
 def ensure_dirs() -> None:

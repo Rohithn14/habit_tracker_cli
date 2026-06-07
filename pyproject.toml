@@ -24,6 +24,7 @@ dependencies = [
     "platformdirs>=4.10.0",
     "rich>=15.0.0",
     "textual>=8.2.7",
+    "tomli-w>=1.2.0",
     "typer>=0.26.7",
 ]
 
@@ -43,8 +44,10 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+asyncio_mode = "auto"

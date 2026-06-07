@@ -34,6 +34,7 @@ from habit_tracker.tui.widgets import (
     today_value,
 )
 from habit_tracker.tui.commands import HabitCommands
+from habit_tracker.tui.screens import ConfirmScreen, EditHabitScreen, SettingsScreen
 
 _RANGES = ["year", "quarter", "month"]
 _DIM = "#7d8590"
@@ -190,8 +191,9 @@ class HabitApp(App):
         height: 9;
     }
 
-    /* ── Input overlay ───────────────────────────────────── */
-    Input {
+    /* ── Input overlay (scoped to the bottom overlay inputs only, so it
+          doesn't hide Inputs inside modal screens) ──────────── */
+    #add-input, #count-input, #note-input, #search-input {
         layer: overlay;
         dock: bottom;
         margin: 0 1 1 1;
@@ -199,7 +201,7 @@ class HabitApp(App):
         background: $panel;
         display: none;
     }
-    Input.-active {
+    #add-input.-active, #count-input.-active, #note-input.-active, #search-input.-active {
         display: block;
     }
 
@@ -266,7 +268,9 @@ class HabitApp(App):
         Binding("n", "add_note", "Note"),
         Binding("slash", "search", "Search", show=False),
         Binding("a", "add_habit", "Add"),
+        Binding("e", "edit_habit", "Edit"),
         Binding("x", "delete_habit", "Delete"),
+        Binding("comma", "open_settings", "Settings"),
         Binding("1", "set_range_year", "Year"),
         Binding("2", "set_range_quarter", "Quarter"),
         Binding("3", "set_range_month", "Month"),
@@ -283,6 +287,8 @@ class HabitApp(App):
         self._habits: list[Habit] = []
         self._filtered_habits: list[Habit] = []
         self._stats: dict[int, HabitStats] = {}
+        # The heatmap cell currently selected for backfill logging (None = act on today).
+        self._focused_day: date | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -309,13 +315,14 @@ class HabitApp(App):
         yield Input(placeholder="New habit name — Enter to add, Esc to cancel", id="add-input")
         yield Input(placeholder="Count for today — Enter to log, Esc to cancel", id="count-input")
         yield Input(placeholder="Note for today — Enter to save, Esc to cancel", id="note-input")
-        yield Input(placeholder="Filter habits — Esc to clear", id="search-input")
+        yield Input(placeholder="Filter habits (try cat:fitness) — Esc to clear", id="search-input")
         yield Footer()
 
     def on_mount(self) -> None:
         from habit_tracker.config import load_config
         cfg = load_config()
         self._week_start = cfg.get("week_start", "sunday")
+        self._range = cfg.get("default_range", "year")
         self.register_theme(HABIT_THEME)
         self.theme = "habit"
         self.title = "Habit Tracker"
@@ -354,7 +361,7 @@ class HabitApp(App):
         lv = self.query_one("#habit-list", ListView)
         lv.clear()
         for h in habits:
-            lv.append(HabitListItem(h, self._stats[h.id]))
+            lv.append(HabitListItem(h, self._stats[h.id], compact=self._compact))
         if habits:
             lv.index = 0
             self._update_detail(habits[0])
@@ -400,6 +407,7 @@ class HabitApp(App):
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         if isinstance(event.item, HabitListItem):
+            self._focused_day = None
             self._update_detail(event.item.habit)
 
     def _selected_habit(self) -> Habit | None:
@@ -427,17 +435,28 @@ class HabitApp(App):
                 item.refresh_stats(self._stats[h.id])
                 break
         self._update_detail(h)
+        # Backfill edits keep the selected day's detail open with refreshed values.
+        if self._focused_day is not None:
+            self._show_day_detail(h, self._focused_day)
+
+    def _target_day(self) -> date:
+        """The day logging actions apply to: a selected heatmap cell, else today."""
+        return self._focused_day or date.today()
+
+    def _show_day_detail(self, habit: Habit, day: date) -> None:
+        from habit_tracker.storage import get_entry
+        entry = get_entry(habit.id, day)
+        detail = self.query_one("#day-detail", DayDetailWidget)
+        detail.border_title = f"  {day.strftime('%a, %d %b %Y')}  "
+        detail.add_class("-visible")
+        detail.show_day(day, entry, habit)
 
     def on_heatmap_widget_day_selected(self, event: HeatmapWidget.DaySelected) -> None:
         h = self._selected_habit()
         if h is None:
             return
-        from habit_tracker.storage import get_entry
-        entry = get_entry(h.id, event.day)
-        detail = self.query_one("#day-detail", DayDetailWidget)
-        detail.border_title = f"  {event.day.strftime('%a, %d %b %Y')}  "
-        detail.add_class("-visible")
-        detail.show_day(event.day, entry, h)
+        self._focused_day = event.day
+        self._show_day_detail(h, event.day)
 
     # ── Responsive layout ─────────────────────────────────────────────────────
     def on_resize(self, event) -> None:  # type: ignore[override]
@@ -451,23 +470,28 @@ class HabitApp(App):
             item.set_compact(compact)
 
     # ── Actions ───────────────────────────────────────────────────────────────
+    def _day_label(self, day: date) -> str:
+        return "today" if day == date.today() else day.isoformat()
+
     def action_mark_done(self) -> None:
         h = self._selected_habit()
         if h is None:
             return
-        log_entry(h.id, date.today())
+        day = self._target_day()
+        log_entry(h.id, day)
         self._reload_habit(h)
-        self.notify(f"✓ {h.name} logged for today", title="Done")
+        self.notify(f"✓ {h.name} logged for {self._day_label(day)}", title="Done")
 
     def action_mark_undo(self) -> None:
         h = self._selected_habit()
         if h is None:
             return
-        if remove_entry(h.id, date.today()):
+        day = self._target_day()
+        if remove_entry(h.id, day):
             self._reload_habit(h)
-            self.notify(f"↩ Removed today's entry for {h.name}", title="Undo")
+            self.notify(f"↩ Removed {self._day_label(day)}'s entry for {h.name}", title="Undo")
         else:
-            self.notify(f"No entry for today ({h.name})", severity="warning")
+            self.notify(f"No entry for {self._day_label(day)} ({h.name})", severity="warning")
 
     def action_add_habit(self) -> None:
         inp = self.query_one("#add-input", Input)
@@ -487,7 +511,7 @@ class HabitApp(App):
             return
         inp = self.query_one("#note-input", Input)
         from habit_tracker.storage import get_entry
-        existing = get_entry(h.id, date.today())
+        existing = get_entry(h.id, self._target_day())
         inp.value = existing.notes or "" if existing else ""
         inp.add_class("-active")
         inp.focus()
@@ -501,17 +525,24 @@ class HabitApp(App):
         if event.input.id != "search-input":
             return
         query = event.value.strip().lower()
-        if query:
-            self._filtered_habits = [h for h in self._habits if query in h.name.lower()]
+        if query.startswith("cat:"):
+            cat = query[4:].strip()
+            self._filtered_habits = [
+                h for h in self._habits if h.category and cat in h.category.lower()
+            ]
+        elif query:
+            self._filtered_habits = [
+                h for h in self._habits
+                if query in h.name.lower()
+                or (h.category and query in h.category.lower())
+            ]
         else:
             self._filtered_habits = self._habits
         self._rebuild_list(self._filtered_habits)
-        # Keep compact state after rebuild
-        if self._compact:
-            for item in self.query(HabitListItem):
-                item.set_compact(True)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        # Only the four bottom overlay inputs are handled here; Inputs inside modal
+        # screens emit their own Submitted and must not be treated as "add habit".
         if event.input.id == "count-input":
             self._handle_count_submitted(event.value.strip())
         elif event.input.id == "note-input":
@@ -519,7 +550,7 @@ class HabitApp(App):
         elif event.input.id == "search-input":
             # Enter on search keeps filter active and focuses the list
             self.query_one("#habit-list", ListView).focus()
-        else:
+        elif event.input.id == "add-input":
             self._handle_add_submitted(event.value.strip())
 
     def _handle_add_submitted(self, name: str) -> None:
@@ -542,8 +573,10 @@ class HabitApp(App):
         inp.value = ""
         h = self._selected_habit()
         if h and text:
-            set_entry_note(h.id, date.today(), text)
-            self.notify(f"📝 Note saved for {h.name}", title="Note")
+            day = self._target_day()
+            set_entry_note(h.id, day, text)
+            self._reload_habit(h)
+            self.notify(f"📝 Note saved for {h.name} ({self._day_label(day)})", title="Note")
         self.query_one("#habit-list", ListView).focus()
 
     def _handle_count_submitted(self, raw: str) -> None:
@@ -562,16 +595,19 @@ class HabitApp(App):
                 self.notify("Count must be > 0", severity="warning")
                 self.query_one("#habit-list", ListView).focus()
                 return
-            log_entry(h.id, date.today(), count=n)
+            day = self._target_day()
+            log_entry(h.id, day, count=n)
             self._reload_habit(h)
-            self.notify(f"✓ {h.name} logged ×{n} for today", title="Logged")
+            self.notify(f"✓ {h.name} logged ×{n} for {self._day_label(day)}", title="Logged")
         self.query_one("#habit-list", ListView).focus()
 
     def action_cancel_input(self) -> None:
         cleared_search = False
+        had_active_input = False
         for inp_id in ("#add-input", "#count-input", "#note-input", "#search-input"):
             inp = self.query_one(inp_id, Input)
             if "-active" in inp.classes:
+                had_active_input = True
                 if inp_id == "#search-input":
                     cleared_search = True
                 inp.remove_class("-active")
@@ -579,18 +615,76 @@ class HabitApp(App):
         if cleared_search:
             self._filtered_habits = self._habits
             self._rebuild_list(self._habits)
-            if self._compact:
-                for item in self.query(HabitListItem):
-                    item.set_compact(True)
+        # No input was open → Esc dismisses the day-detail overlay / backfill focus.
+        if not had_active_input and self._focused_day is not None:
+            self._focused_day = None
+            self.query_one("#day-detail", DayDetailWidget).clear()
+            h = self._selected_habit()
+            if h is not None:
+                self._update_detail(h)
         self.query_one("#habit-list", ListView).focus()
+
+    def action_edit_habit(self) -> None:
+        h = self._selected_habit()
+        if h is None:
+            return
+
+        def _on_save(values: dict | None) -> None:
+            if not values:
+                return
+            from habit_tracker.storage import get_habit, update_habit, _UNSET
+            import sqlite3
+            if values["name"] != h.name and get_habit(values["name"]):
+                self.notify(f"Habit '{values['name']}' already exists", severity="warning")
+                return
+            try:
+                update_habit(
+                    h.id,
+                    name=values["name"],
+                    emoji=values["emoji"],
+                    color=values["color"],
+                    target=values["target"],
+                    schedule=values["schedule"],
+                    category=values["category"],
+                )
+            except sqlite3.IntegrityError:
+                self.notify(f"Habit '{values['name']}' already exists", severity="warning")
+                return
+            self.notify(f"Updated: {values['name']}", title="Edited")
+            self._load_habits()
+            self.select_habit_by_name(values["name"])
+
+        self.push_screen(EditHabitScreen(h), _on_save)
+
+    def action_open_settings(self) -> None:
+        def _on_save(values: dict | None) -> None:
+            if not values:
+                return
+            from habit_tracker.config import save_config, load_config
+            save_config({**load_config(), **values})
+            self._week_start = values["week_start"]
+            self._set_range(values["default_range"])
+            self.notify("Settings saved", title="Settings")
+
+        self.push_screen(SettingsScreen(self._week_start, self._range), _on_save)
 
     def action_delete_habit(self) -> None:
         h = self._selected_habit()
         if h is None:
             return
-        delete_habit(h.name)
-        self.notify(f"Deleted: {h.name}", severity="warning", title="Removed")
-        self._load_habits()
+        label = f"{h.emoji} {h.name}" if h.emoji else h.name
+
+        def _on_confirm(confirmed: bool | None) -> None:
+            if not confirmed:
+                return
+            delete_habit(h.name)
+            self.notify(f"Deleted: {h.name}", severity="warning", title="Removed")
+            self._load_habits()
+
+        self.push_screen(
+            ConfirmScreen(f"Delete '{label}' and all its entries?"),
+            _on_confirm,
+        )
 
     def action_set_range_year(self) -> None:
         self._set_range("year")
@@ -603,6 +697,7 @@ class HabitApp(App):
 
     def _set_range(self, r: str) -> None:
         self._range = r
+        self._focused_day = None  # a selected cell may fall outside the new range
         self.query_one("#range-pills", Static).update(self._range_pills())
         h = self._selected_habit()
         if h:
